@@ -5,6 +5,8 @@
     "edit": "ask",
     "webfetch": "allow",
     "bitget_*": "ask",
+    "risk_*": "allow",
+    "validator_*": "allow",
     "db_*": "allow"
   },
   "mcp": {
@@ -31,6 +33,20 @@
       "command": "python",
       "args": [
         "./opencode/mcp/db_server.py"
+      ]
+    },
+    "risk": {
+      "type": "stdio",
+      "command": "python",
+      "args": [
+        "./opencode/mcp/risk_server.py"
+      ]
+    },
+    "validator": {
+      "type": "stdio",
+      "command": "python",
+      "args": [
+        "./opencode/mcp/validator_server.py"
       ]
     }
   }
