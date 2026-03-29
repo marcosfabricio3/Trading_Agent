@@ -43,14 +43,17 @@ class TradeMonitor:
         """
         Lógica para TP1 y Break-Even.
         """
-        # Para LONG
-        if trade["side"].lower() == "long":
-            # Si el precio toca TP1 (o más) y no se ha marcado como ya procesado
+        side = trade["side"].lower()
+        if side == "long":
             if current_price >= trade["tp"] and not trade["tp1_hit"]:
                 self.handle_tp1(trade)
-            
-            # Si el precio toca SL (Cierre total)
             elif current_price <= trade["sl"]:
+                self.handle_exit(trade, current_price, "Stop Loss")
+        
+        elif side == "short":
+            if current_price <= trade["tp"] and not trade["tp1_hit"]:
+                self.handle_tp1(trade)
+            elif current_price >= trade["sl"]:
                 self.handle_exit(trade, current_price, "Stop Loss")
 
     def handle_tp1(self, trade):
@@ -65,8 +68,9 @@ class TradeMonitor:
         # 2. Mover SL a Break-Even en Bitget
         self.exchange.update_sl(trade["symbol"], trade["entry_price"])
         
-        # 3. Actualizar estado en DB
-        self.db.update_trade_status(trade["id"], tp1_hit=True, sl_moved=True)
+        # 3. Actualizar estado en DB (usamos 'details' para campos extra)
+        details = {"tp1_hit": True, "sl_moved": True}
+        self.db.update_trade_status(trade["id"], "active", details=details)
         
         logger.info(f"🛡️ [Monitor] {trade['symbol']}: Parcial cerrado y SL movido a Entrada ({trade['entry_price']})")
 
@@ -75,4 +79,5 @@ class TradeMonitor:
         Cierre total del trade.
         """
         logger.info(f"🚩 [Monitor] Exit detectado ({reason}) para {trade['symbol']} a {price}")
-        self.db.update_trade_status(trade["id"], exit_price=price)
+        details = {"exit_price": price, "exit_reason": reason}
+        self.db.update_trade_status(trade["id"], "closed", details=details)

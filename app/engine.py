@@ -13,7 +13,7 @@ class TradingEngine:
         self.exchange = exchange
         self.db = db
 
-    def process_signal(self, raw_text: str):
+    async def process_signal(self, raw_text: str):
         """
         Procesa una señal de texto desde su recepción hasta su ejecución.
         """
@@ -48,9 +48,9 @@ class TradingEngine:
         market_price = self.exchange.get_market_price(parsed["symbol"])["price"]
         dist_check = self.validator.check_market_distance(parsed["entry"], market_price)
         if not dist_check["valid"]:
-            logger.warning(f"  [Rechazada] Precio de mercado muy lejano: {dist_check['distance_pct']}%")
-            self.db.log_event("market_distance_rejected", dist_check["reason"], parsed)
-            return
+            logger.warning(f"  [Atención] Precio de mercado alejado: {dist_check['distance_pct']}% (Se creará orden LIMIT)")
+            self.db.log_event("market_distance_warning", dist_check["reason"], parsed)
+            # No retornamos, dejamos que cree la orden LIMIT
 
         logger.info(f"  [OK] Precio de mercado validado (Distancia: {dist_check['distance_pct']}%)")
 

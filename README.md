@@ -1,4 +1,4 @@
-# Trading Agent 🚀
+# Trading Agent
 
 Agente de trading profesional, escalable y seguro diseñado para automatizar señales de trading (ej. Telegram) hacia Bitget.
 

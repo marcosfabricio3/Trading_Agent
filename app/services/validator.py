@@ -1,13 +1,11 @@
 from opencode.mcp.validator_server import validate_signal as core_validate, check_market_distance as core_check_dist
 
-def validate_signal(signal_data: dict):
+class SignalValidator:
     """
     Wrapper for the core validator logic.
     """
-    return core_validate(signal_data)
+    def validate_signal(self, signal_data: dict):
+        return core_validate(signal_data)
 
-def check_market_distance(entry_price: float, market_price: float):
-    """
-    Wrapper for market price distance check.
-    """
-    return core_check_dist(entry_price, market_price)
+    def check_market_distance(self, entry_price: float, market_price: float):
+        return core_check_dist(entry_price, market_price)
