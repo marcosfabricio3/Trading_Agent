@@ -1,0 +1,7 @@
+{
+  "name": "validate_signal",
+  "steps": [
+    "parser.parse_signal",
+    "validator.validate"
+  ]
+}

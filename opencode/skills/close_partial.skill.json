@@ -1,0 +1,9 @@
+{
+  "name": "close_partial",
+  "steps": [
+    "db.get_open_trade",
+    "bitget.get_position",
+    "bitget.close_position",
+    "db.update_position"
+  ]
+}

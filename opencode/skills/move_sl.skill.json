@@ -1,0 +1,8 @@
+{
+  "name": "move_sl",
+  "steps": [
+    "db.get_trade",
+    "bitget.cancel_sl",
+    "bitget.create_sl"
+  ]
+}

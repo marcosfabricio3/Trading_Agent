@@ -1,0 +1,4 @@
+- No más de 1 trade por símbolo
+- Siempre SL y TP definidos
+- Parciales: 25%
+- Rechazar señales ambiguas

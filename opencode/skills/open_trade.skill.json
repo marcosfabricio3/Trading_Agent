@@ -1,0 +1,11 @@
+{
+  "name": "open_trade",
+  "steps": [
+    "parser.parse_signal",
+    "validate_signal",
+    "calculate_risk",
+    "bitget.create_order",
+    "bitget.set_sl_tp",
+    "db.save_trade"
+  ]
+}
