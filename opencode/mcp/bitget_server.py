@@ -39,11 +39,24 @@ def get_balance():
     return {"balance": 500.0, "currency": "USDT"}
 
 @mcp.tool()
+def get_market_price(symbol: str):
+    """
+    Returns the current market price for a symbol.
+    """
+    # Mock prices for common symbols
+    prices = {
+        "XRPUSDT": 1.35,
+        "BTCUSDT": 95000.0,
+        "ETHUSDT": 2700.0
+    }
+    return {"price": prices.get(symbol, 1.0)}
+
+@mcp.tool()
 def get_position(symbol: str):
     """
     Returns the current position for a symbol.
     """
-    # Mock position
+    # Mock position (0.0 means no active trade)
     return {
         "symbol": symbol,
         "size": 0.0,

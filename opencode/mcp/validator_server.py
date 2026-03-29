@@ -51,5 +51,19 @@ def validate_signal(parsed_signal: dict):
     except Exception as e:
         return {"valid": False, "reason": f"Validation error: {str(e)}"}
 
+@mcp.tool()
+def check_market_distance(entry_price: float, market_price: float, max_distance_pct: float = 1.0):
+    """
+    Checks if the entry price is within a maximum percentage distance from market price.
+    """
+    distance_pct = abs(entry_price - market_price) / market_price * 100
+    if distance_pct > max_distance_pct:
+        return {
+            "valid": False,
+            "distance_pct": round(distance_pct, 2),
+            "reason": f"Market price ({market_price}) is too far from entry ({entry_price}). Distance: {distance_pct:.2f}%"
+        }
+    return {"valid": True, "distance_pct": round(distance_pct, 2)}
+
 if __name__ == "__main__":
     mcp.run()
