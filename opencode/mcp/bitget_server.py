@@ -64,5 +64,29 @@ def get_position(symbol: str):
         "unrealized_pnl": 0.0
     }
 
+@mcp.tool()
+def close_position_partial(symbol: str, pct: float):
+    """
+    Closes a percentage of an open position.
+    Example: pct=0.5 closes 50% of the position.
+    """
+    return {
+        "status": "success",
+        "symbol": symbol,
+        "closed_pct": pct,
+        "message": f"Closed {pct*100}% of position on {symbol}"
+    }
+
+@mcp.tool()
+def update_sl(symbol: str, new_sl: float):
+    """
+    Updates the Stop Loss price for an existing position.
+    """
+    return {
+        "status": "success",
+        "symbol": symbol,
+        "new_sl": new_sl
+    }
+
 if __name__ == "__main__":
     mcp.run()

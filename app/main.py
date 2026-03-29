@@ -1,8 +1,12 @@
+import asyncio
 from app.engine import TradingEngine
-from app.services import parser, validator, risk, exchange, db, ingestion, telegram_ingestion
+from app.services import (
+    parser, validator, risk, exchange, db, 
+    ingestion, telegram_ingestion, monitor
+)
 from app.logger import logger
 
-def main():
+async def run_bot():
     logger.info("=== TRADING AGENT v1.0 (PRO) ===")
     
     # 1. Inicialización
@@ -14,27 +18,37 @@ def main():
         db=db
     )
     
-    # 2. Selección de modo (Por ahora usaremos Mock para el test final)
-    mode = "mock" # Cambiar a "telegram" para usar la integración real
+    trade_monitor = monitor.TradeMonitor(engine, exchange, db)
     
+    # 2. Selección de modo
+    mode = "mock" # Cambiar a "telegram" para real
+    
+    tasks = []
+    
+    # Tarea 1: Monitor de Trades (Habilitado siempre)
+    tasks.append(trade_monitor.run(interval=2))
+    
+    # Tarea 2: Ingestión de Señales
     if mode == "mock":
         listener = ingestion.MockListener(engine)
         test_signals = [
-            "XRP LONG ENTRADA: 1.34 TP: 1.88 SL: 1.22 RIESGO: 5",
-            "BTC LONG ENTRADA: 95000 TP: 105000 SL: 94000 RIESGO: 2"
+            "XRP LONG ENTRADA: 1.34 TP: 1.88 SL: 1.22 RIESGO: 5"
         ]
-        logger.info("Iniciando en modo SIMULACIÓN...")
+        logger.info("Modo SIMULACIÓN: Inyectando señal inicial...")
+        # Corremos la simulación una vez
         listener.listen_and_process(test_signals)
     else:
         listener = telegram_ingestion.TelegramListener(engine)
-        logger.info("Iniciando en modo TELEGRAM (Real)...")
-        listener.run_forever()
-    
-    logger.info("=== Aplicación Finalizada Correctamente ===")
+        tasks.append(listener.start())
+        logger.info("Modo TELEGRAM: Esperando señales reales...")
+
+    # Ejecutar todas las tareas asíncronas
+    if tasks:
+        await asyncio.gather(*tasks)
 
 if __name__ == "__main__":
     try:
-        main()
+        asyncio.run(run_bot())
     except KeyboardInterrupt:
         logger.info("\n[!] Deteniendo bot por el usuario...")
     except Exception as e:
