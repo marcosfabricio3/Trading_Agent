@@ -15,92 +15,101 @@ class TradingEngine:
 
     async def process_signal(self, raw_text: str):
         """
-        Procesa una señal de texto desde su recepción hasta su ejecución.
+        Procesa un mensaje de Telegram (Señal o Gestión) usando el Pipeline de IA.
         """
-        logger.info("[Engine] Procesando nueva señal...")
+        logger.info("[Engine] Analizando mensaje entrante...")
         
-        # 1. Parsing: Extraer datos brutos
-        parsed = self.parser.parse_signal(raw_text)
-        if "error" in parsed:
-            logger.error(f"  [Error] Fallo al parsear: {parsed['error']}")
-            self.db.log_event("parser_error", parsed["error"], {"raw": raw_text})
-            return
-            
-        logger.info(f"  [OK] Señal parseada: {parsed['symbol']} {parsed['side']}")
+        # 1. Interpretación (Categoría + Datos)
+        interpretation = await self.parser.parse_signal(raw_text)
+        category = interpretation.get("category", "DISCARD")
+        data = interpretation.get("data", {})
 
-        # 2. Validation: Verificar reglas de negocio
+        if category == "DISCARD" or category == "NOISE":
+            logger.info(f"  [Ignorado] Motivo: {interpretation.get('reason', 'Ruido detectado')}")
+            return
+
+        if category == "ERROR":
+            logger.error(f"  [Error] Fallo en interpretación: {interpretation.get('reason')}")
+            return
+
+        # 2. Ejecución según Categoría
+        if category == "NEW_SIGNAL":
+            await self.handle_new_signal(data, raw_text)
+        elif category in ["PARTIAL_CLOSE", "MOVE_BE", "CLOSE_FULL"]:
+            await self.handle_management_order(category, data)
+        else:
+            logger.warning(f"  [Alerta] Categoría no soportada: {category}")
+
+    async def handle_new_signal(self, parsed, raw_text):
+        """Lógica original de apertura de trades."""
+        logger.info(f"  [OK] Nueva señal detectada: {parsed['symbol']} {parsed['side'].lower()}")
+        
+        # Normalización de Side (AI puede devolver LONG o long)
+        side = parsed.get("side", "unknown").lower()
+        if side not in ["long", "short"]:
+            logger.warning(f"  [Rechazada] Invalid side: {side}")
+            return
+
+        # Validación
         validation = self.validator.validate_signal(parsed)
         if not validation["valid"]:
-            logger.warning(f"  [Rechazada] Reglas de negocio: {validation['reason']}")
-            self.db.log_event("validation_rejected", validation["reason"], parsed)
+            logger.warning(f"  [Rechazada] {validation['reason']}")
             return
 
-        logger.info(f"  [OK] Validación exitosa (R:R: {validation['rr_ratio']})")
-
-        # 2.1 Anti-Overload: Un trade por símbolo
-        current_pos = self.exchange.get_position(parsed["symbol"])
-        if current_pos.get("size", 0) > 0:
-            logger.warning(f"  [Rechazada] Posición ya abierta para {parsed['symbol']}")
-            self.db.log_event("overload_prevention", "Duplicate symbol position", parsed)
-            return
-
-        # 2.2 Market Distance: Validar que el precio no se haya escapado
-        market_price = self.exchange.get_market_price(parsed["symbol"])["price"]
-        dist_check = self.validator.check_market_distance(parsed["entry"], market_price)
-        if not dist_check["valid"]:
-            logger.warning(f"  [Atención] Precio de mercado alejado: {dist_check['distance_pct']}% (Se creará orden LIMIT)")
-            self.db.log_event("market_distance_warning", dist_check["reason"], parsed)
-            # No retornamos, dejamos que cree la orden LIMIT
-
-        logger.info(f"  [OK] Precio de mercado validado (Distancia: {dist_check['distance_pct']}%)")
-
-        # 3. Risk Management: Calcular tamaño de posición
-        balance = self.exchange.get_balance()["balance"]
-        risk_calc = self.risk_manager.calculate_position_size(
-            capital=balance,
-            risk_pct=parsed["risk_pct"],
-            entry=parsed["entry"],
-            sl=parsed["sl"]
-        )
+        # Distancia de mercado
+        market = self.exchange.get_market_price(parsed["symbol"])
+        dist = self.validator.check_market_distance(parsed["entry"], market["price"])
         
-        if "error" in risk_calc:
-            logger.error(f"  [Error] Fallo en cálculo de riesgo: {risk_calc['error']}")
-            return
+        # Cálculo de riesgo
+        balance = self.exchange.get_balance()["balance"]
+        risk_pct = parsed.get("risk_pct", 1.0)
+        risk = self.risk_manager.calculate_position_size(balance, risk_pct, parsed["entry"], parsed["sl"])
+        
+        if "error" in risk: return
 
-        logger.info(f"  [OK] Posición calculada: {risk_calc['position_size']} USDT")
-
-        # 4. Execution: Mandar orden al exchange
+        # Ejecución
         order = self.exchange.create_order(
-            symbol=parsed["symbol"],
-            side=parsed["side"],
-            order_type="limit",
-            qty=risk_calc["position_size"] / parsed["entry"], 
-            price=parsed["entry"]
+            parsed["symbol"], parsed["side"], "limit", risk["position_size"] / parsed["entry"], parsed["entry"]
         )
         
         if order["status"] == "success":
-            logger.info(f"  [ÉXITO] Orden creada: {order['order_id']}")
-            # 5. DB: Guardar todo el proceso
-            signal_id = self.db.save_signal(
-                raw_text=raw_text,
-                symbol=parsed["symbol"],
-                side=parsed["side"],
-                entry=parsed["entry"],
-                tp=parsed["tp"],
-                sl=parsed["sl"],
-                risk=parsed["risk_pct"]
-            )["id"]
-            
-            self.db.save_trade(
-                signal_id=signal_id,
-                symbol=parsed["symbol"],
-                side=parsed["side"],
-                entry_price=parsed["entry"]
-            )
-            
+            logger.info(f"  [ÉXITO] Trade abierto: {order['order_id']}")
+            sid = self.db.save_signal(raw_text, **parsed)["id"]
+            self.db.save_trade(sid, parsed["symbol"], parsed["side"], parsed["entry"])
             self.exchange.set_sl_tp(parsed["symbol"], parsed["sl"], parsed["tp"])
-        else:
-            logger.error(f"  [Error] Fallo en la ejecución del exchange: {order}")
+
+    async def handle_management_order(self, category, data):
+        """Lógica de gestión de trades activos (Parciales, BE, Cierres)."""
+        symbol = data.get("symbol", "UNKNOWN")
+        
+        # Intentamos buscar el símbolo si no viene (ej: "cerramos todo" en un chat monográfico)
+        if symbol == "UNKNOWN":
+            active = self.db.get_active_trades()
+            if len(active) == 1:
+                symbol = active[0]["symbol"]
+            else:
+                logger.error("  [Error] No se pudo determinar el símbolo para la gestión.")
+                return
+
+        logger.info(f"  [Gestión] Ejecutando {category} para {symbol}")
+
+        if category == "PARTIAL_CLOSE":
+            percent = data.get("percent", 30) / 100.0
+            logger.info(f"  [Gestión] Ejecutando PARTIAL_CLOSE ({percent*100}%) para {symbol}")
+            self.exchange.close_position_partial(symbol, pct=percent)
+            
+            # REGLA DE ORO: Si tomamos parcial, movemos SL a BE
+            logger.info(f"  [Regla] Protegiendo trade: Moviendo SL a Break-Even para {symbol}")
+            pos = self.exchange.get_position(symbol)
+            if pos and pos.get("entry_price", 0) > 0:
+                self.exchange.update_sl(symbol, pos["entry_price"])
+
+        elif category == "MOVE_BE":
+                trade = self.db.get_trade_by_symbol(symbol)
+                if trade:
+                    self.exchange.update_sl(symbol, trade["entry_price"])
+                    self.db.update_trade_status(trade["id"], tp1_hit=True, sl_moved=True)
+                    logger.info("  [Auto] SL movido a Break-Even tras toma de beneficios.")
 
 if __name__ == "__main__":
     # Test rápido de orquestación manual

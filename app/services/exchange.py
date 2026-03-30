@@ -22,8 +22,11 @@ class ExchangeService:
     def get_market_price(self, symbol):
         return core_market_price(symbol)
 
-    def close_position_partial(self, symbol, side, qty):
-        return close_position_partial(symbol, side, qty)
+    def close_position_partial(self, symbol, pct):
+        return close_position_partial(symbol, pct=pct)
 
-    def update_sl(self, symbol, side, new_sl):
-        return update_sl(symbol, side, new_sl)
+    def close_full(self, symbol):
+        return close_position_partial(symbol, pct=1.0)
+
+    def update_sl(self, symbol, new_sl):
+        return update_sl(symbol, new_sl)

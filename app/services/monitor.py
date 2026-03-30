@@ -68,9 +68,8 @@ class TradeMonitor:
         # 2. Mover SL a Break-Even en Bitget
         self.exchange.update_sl(trade["symbol"], trade["entry_price"])
         
-        # 3. Actualizar estado en DB (usamos 'details' para campos extra)
-        details = {"tp1_hit": True, "sl_moved": True}
-        self.db.update_trade_status(trade["id"], "active", details=details)
+        # 3. Actualizar estado en DB (usamos parámetros con nombre)
+        self.db.update_trade_status(trade["id"], tp1_hit=True, sl_moved=True)
         
         logger.info(f"🛡️ [Monitor] {trade['symbol']}: Parcial cerrado y SL movido a Entrada ({trade['entry_price']})")
 
@@ -79,5 +78,4 @@ class TradeMonitor:
         Cierre total del trade.
         """
         logger.info(f"🚩 [Monitor] Exit detectado ({reason}) para {trade['symbol']} a {price}")
-        details = {"exit_price": price, "exit_reason": reason}
-        self.db.update_trade_status(trade["id"], "closed", details=details)
+        self.db.update_trade_status(trade["id"], exit_price=price)

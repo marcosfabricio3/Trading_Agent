@@ -1,0 +1,32 @@
+services:
+  # --- Motor de Trading (Backend + API + Telegram) ---
+  trading-agent-app:
+    build: .
+    container_name: trading-agent-app
+    restart: always
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./trading.db:/app/trading.db
+      - ./trading_session.session:/app/trading_session.session
+      - ./agent.log:/app/agent.log
+    networks:
+      - trading-net
+
+  # --- Panel de Control (Frontend + Nginx) ---
+  trading-agent-dashboard:
+    build: ./dashboard
+    container_name: trading-agent-dashboard
+    restart: always
+    ports:
+      - "80:80"
+    depends_on:
+      - trading-agent-app
+    networks:
+      - trading-net
+
+networks:
+  trading-net:
+    driver: bridge

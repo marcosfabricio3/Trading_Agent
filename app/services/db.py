@@ -6,7 +6,16 @@ class DBService:
     """
     Wrapper for the DB MCP server.
     """
-    def save_signal(self, raw_text, symbol, side, entry, tp, sl, risk):
+    def save_signal(self, raw_text, **kwargs):
+        # Mapeamos campos si vienen con otros nombres o desde el diccionario spread
+        symbol = kwargs.get("symbol", "UNKNOWN")
+        side = kwargs.get("side", "unknown")
+        entry = kwargs.get("entry", 0.0)
+        tp = kwargs.get("tp", 0.0)
+        sl = kwargs.get("sl", 0.0)
+        # Soportamos tanto 'risk' como 'risk_pct'
+        risk = kwargs.get("risk", kwargs.get("risk_pct", 0.0))
+        
         return save_signal(raw_text, symbol, side, entry, tp, sl, risk)
 
     def save_trade(self, signal_id, symbol, side, entry_price):
@@ -18,5 +27,5 @@ class DBService:
     def get_active_trades(self):
         return get_active_trades()
 
-    def update_trade_status(self, trade_id, status, details=None):
-        return update_trade_status(trade_id, status, details)
+    def update_trade_status(self, trade_id, tp1_hit=None, sl_moved=None, exit_price=None):
+        return update_trade_status(trade_id, tp1_hit=tp1_hit, sl_moved=sl_moved, exit_price=exit_price)
