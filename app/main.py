@@ -15,10 +15,23 @@ from app.dashboard_api import app
 
 load_dotenv()
 
-async def run_api():
+async def run_api(engine):
+    app.state.engine = engine
     config = uvicorn.Config(app, host="0.0.0.0", port=8000, log_level="error")
     server = uvicorn.Server(config)
     await server.serve()
+
+async def heartbeat_loop(db):
+    """
+    Pulso constante del motor para el Dashboard.
+    """
+    while True:
+        try:
+            db.log_event("HEARTBEAT", "Bot Engine Pulse", {"service": "ENGINE", "status": "alive"})
+            await asyncio.sleep(10)
+        except Exception as e:
+            logger.error(f"Heartbeat Error: {e}")
+            await asyncio.sleep(5)
 
 async def main():
     logger.info("=== TRADING AGENT v1.0 (PRO) ===")
@@ -39,13 +52,9 @@ async def main():
     monitor = TradeMonitor(engine, exchange, db)
     telegram = TelegramService(engine)
     
-    mode = os.getenv("APP_MODE", "dev")
-    
-    if mode == "dev":
-        logger.info("Modo SIMULACIÓN: Inyectando señal inicial de prueba...")
-        # Inyectamos una señal que coincida con el formato del parser y precio actual
-        test_msg = "XRP\nLONG X20\nENTRADA: 1.35\nTP: 1.65\nSL: 1.25\nRIESGO: 1"
-        asyncio.create_task(engine.process_signal(test_msg))
+    # Inyectar dependencias en el estado de la app para la API
+    app.state.engine = engine
+    app.state.telegram = telegram
     
     logger.info("=== Iniciando Servicios del Agente (Engine + API) ===")
     
@@ -54,7 +63,8 @@ async def main():
         await asyncio.gather(
             monitor.run(),
             telegram.start(),
-            run_api()
+            run_api(engine),
+            heartbeat_loop(db)
         )
     except KeyboardInterrupt:
         logger.info("[!] Deteniendo bot por el usuario...")

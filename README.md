@@ -1,38 +1,27 @@
-# Trading Agent
+# Trading Agent PRO (v0.0.1)
 
-Agente de trading profesional, escalable y seguro diseñado para automatizar señales de trading (ej. Telegram) hacia Bitget.
+Agente de trading profesional, escalable y seguro diseñado para automatizar señales de Telegram hacia Bitget con interpretación de Inteligencia Artificial (Gemini).
 
-## Arquitectura
+## 🚀 Inicio Rápido
 
-El sistema sigue una arquitectura de microservicios desacoplados usando el **Model Context Protocol (MCP)**:
+1. **Configura tu .env**: Asegúrate de tener `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`, `TELEGRAM_PHONE` y `GEMINI_API_KEY`.
+2. **Lanza el Agente**: Ejecuta el archivo `Comenzar_Agente.bat`.
+3. **Gestiona tus Chats**: Entra al Dashboard, ve a "Gestión Chat" y usa el botón **"REFRESCAR CATÁLOGO"** para añadir fuentes.
 
-- **Parser**: Traduce texto plano a objetos de señal estructurados.
-- **Validator**: Filtra señales que no cumplen con los parámetros de calidad o R:R.
-- **Risk**: Calcula el tamaño de la posición basándose en el capital disponible y la distancia al SL.
-- **Bitget**: Interfaz con el exchange para ejecución de órdenes.
-- **DB**: Persistencia de señales, trades, órdenes y eventos.
+## 🏗️ Arquitectura Integrada
 
-## Requisitos
+El sistema utiliza el **Model Context Protocol (MCP)** para desacoplar responsabilidades:
 
-- Python 3.10+
-- Node.js (para el servidor de Bitget)
-- SQLite3
+- **AI Parser**: (Gemini Flash) Traduce texto plano a objetos de señal.
+- **Engine**: Orquesta validación, gestión de riesgo y ejecución.
+- **Dashboard**: Interfaz React en tiempo real para control total.
 
-## Instalación
+## 🛠️ Requisitos Técnicos
 
-1. Clona el repositorio.
-2. Crea un entorno virtual: `python -m venv venv`.
-3. Instala dependencias: `pip install fastmcp`.
-4. Copia `.env.example` a `.env` y completa tus credenciales.
+- **Python 3.10+**: Corazón del bot y la API.
+- **Node.js**: Necesario para el servidor de Bitget.
+- **SQLite3**: Persistencia local segura y rápida.
 
-## Estructura de Carpetas
-
-- `opencode/mcp/`: Servidores MCP individuales.
-- `opencode/context/`: Documentación técnica y reglas de negocio.
-- `opencode/skills/`: Orquestación de flujos de trabajo.
-- `opencode/environments/`: Configuraciones por entorno.
-
-## Seguridad
-
-- Nunca subas el archivo `.env` al repositorio.
-- Usa el modo `dev` para pruebas sin ejecución real en el exchange.
+---
+> [!IMPORTANT]
+> **Modo de Operación**: Por defecto, el sistema opera según las reglas guardadas en la base de datos. Puedes modificarlas en tiempo real desde la pestaña "Configuración" del Dashboard.

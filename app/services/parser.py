@@ -13,22 +13,25 @@ class SignalParser:
         """
         Intenta parsear mediante Regex (Rápido) -> Si falla o es incompleto -> Llama a IA.
         """
-        # 1. Intento rápido con Regex (Síncrono)
-        deterministic = core_parse(text)
+        # 1. Intento rápido con Regex (Soporte Async ahora)
+        result = await core_parse(text)
         
-        # Si el regex falla o le faltan datos críticos (is_incomplete), delegamos a la IA
+        # Si el resultado ya tiene una categoría clara (IA o Regex avanzado), lo devolvemos tal cual
+        if "category" in result and result["category"] != "ERROR":
+            return result
+            
+        # Si el resultado es síncrono/viejo o incompleto, intentamos IA de nuevo (redundancia)
         if (
-            "error" in deterministic or 
-            deterministic.get("symbol") == "UNKNOWN" or 
-            deterministic.get("is_incomplete", False)
+            "error" in result or 
+            result.get("symbol") == "UNKNOWN" or 
+            result.get("is_incomplete", False)
         ):
-            logger.info("[Parser] Regex incompleto o mensaje humano. Consultando Motor de IA...")
-            # Simulamos el comportamiento del Engine de IA unificado
-            return interpret_with_ai(text)
+            logger.info("[Parser] Datos incompletos. Re-evaluando con Motor de IA...")
+            return await interpret_with_ai(text)
         
-        # Si el regex funcionó perfectamente (nuevas señales con formato estricto)
+        # Fallback para compatibilidad
         return {
             "category": "NEW_SIGNAL",
-            "data": deterministic,
-            "reason": "regex_matched"
+            "data": result,
+            "reason": "legacy_fallback"
         }

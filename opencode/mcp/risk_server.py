@@ -2,40 +2,48 @@ from fastmcp import FastMCP
 
 mcp = FastMCP("risk")
 
-@mcp.tool()
-def calculate_position_size(capital: float, risk_pct: float, entry: float, sl: float):
-    """
-    Calculates the position size based on the risk model.
-    Formula: position_size = (capital * risk_pct) / sl_distance_pct
-    """
-    try:
-        if entry <= 0:
-            return {"error": "Entry price must be greater than 0"}
-            
-        sl_distance_pct = abs(entry - sl) / entry
+def _calculate_logic(capital: float, risk_pct: float, entry: float, sl: float, 
+                     risk_strategy: str = "CAP", max_trade_margin: float = 100.0,
+                     max_total_margin: float = 300.0, current_total_margin: float = 0.0):
+    """Lógica central de cálculo de posición sin dependencias de MCP."""
+    if entry <= 0: return {"error": "Entry price <= 0"}
+    sl_dist = abs(entry - sl) / entry
+    if sl_dist == 0: return {"error": "SL distance is 0"}
+    
+    # Base size based on Risk %
+    ideal_size = (capital * (risk_pct / 100)) / sl_dist
+    pos_size = ideal_size
+    
+    # 1. Enforce Individual Max Trade Margin
+    if pos_size > max_trade_margin:
+        if risk_strategy == "DISCARD":
+            return {"status": "DISCARDED", "reason": f"Size {pos_size:.2f} > Max Trade {max_trade_margin}"}
+        pos_size = max_trade_margin
         
-        if sl_distance_pct == 0:
-            return {"error": "SL distance cannot be 0"}
-            
-        # position_size is in USDT (nominal value)
-        position_size = (capital * (risk_pct / 100)) / sl_distance_pct
+    # 2. Enforce Total Safety Wall (Max Total Margin)
+    if current_total_margin + pos_size > max_total_margin:
+        if risk_strategy == "DISCARD":
+            return {"status": "DISCARDED", "reason": f"Total {current_total_margin + pos_size:.2f} > Wall {max_total_margin}"}
+        # Capping: Adjust size to fit exactly into the remaining wall
+        pos_size = max_total_margin - current_total_margin
+        if pos_size <= 0:
+            return {"status": "DISCARDED", "reason": f"Safety Wall reached ({current_total_margin:.2f}/{max_total_margin})"}
         
-        # Constraints from risk_model.md
-        # 1. Max 30% capital
-        max_capital_usdt = capital * 0.30
-        if position_size > max_capital_usdt:
-            position_size = max_capital_usdt
-            reason = "capped by max 30% capital rule"
-        else:
-            reason = "calculated according to risk percentage"
-            
-        return {
-            "position_size": round(position_size, 2),
-            "sl_distance_pct": round(sl_distance_pct * 100, 2),
-            "risk_amount_usdt": round(capital * (risk_pct / 100), 2),
-            "reason": reason
-        }
+    return {
+        "status": "APPROVED",
+        "position_size": round(float(pos_size), 2),
+        "risk_amount": round(float(capital * (risk_pct / 100)), 2),
+        "original_size": round(float(ideal_size), 2),
+        "reason": "Capped by limits" if pos_size < ideal_size else "Calculated size"
+    }
 
+@mcp.tool()
+def calculate_position_size(capital: float, risk_pct: float, entry: float, sl: float, 
+                             risk_strategy: str = "CAP", max_trade_margin: float = 100.0,
+                             max_total_margin: float = 300.0, current_total_margin: float = 0.0):
+    """Calculates size based on SL distance and user constraints."""
+    try:
+        return _calculate_logic(capital, risk_pct, entry, sl, risk_strategy, max_trade_margin, max_total_margin, current_total_margin)
     except Exception as e:
         return {"error": str(e)}
 
