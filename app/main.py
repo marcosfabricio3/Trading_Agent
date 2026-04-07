@@ -1,5 +1,10 @@
 import asyncio
 import os
+from dotenv import load_dotenv
+
+# Importante: Cargar variables de entorno ANTES de importar cualquier módulo del app
+load_dotenv()
+
 import uvicorn
 from app.engine import TradingEngine
 from app.services.exchange import ExchangeService
@@ -10,10 +15,7 @@ from app.services.parser import SignalParser
 from app.services.validator import SignalValidator
 from app.services.risk import RiskManager
 from app.logger import logger
-from dotenv import load_dotenv
 from app.dashboard_api import app
-
-load_dotenv()
 
 async def run_api(engine):
     app.state.engine = engine
@@ -28,6 +30,7 @@ async def heartbeat_loop(db):
     while True:
         try:
             db.log_event("HEARTBEAT", "Bot Engine Pulse", {"service": "ENGINE", "status": "alive"})
+            db.log_event("HEARTBEAT", "AI parser heartbeat success", {"service": "parser", "status": "alive"})
             await asyncio.sleep(10)
         except Exception as e:
             logger.error(f"Heartbeat Error: {e}")

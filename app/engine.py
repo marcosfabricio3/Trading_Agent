@@ -16,6 +16,7 @@ class TradingEngine:
     async def process_signal(self, raw_text: str, source: str = "Global"):
         """
         Procesa un mensaje de Telegram (Señal o Gestión) usando el Pipeline de IA.
+        Retorna el 'Pensamiento' de la IA para feedback en Telegram.
         """
         logger.info(f"[Engine] Analizando mensaje de {source}...")
         self.db.log_event("AI_THOUGHT", "Detectado mensaje entrante de Telegram... Iniciando pipeline de análisis.", {"service": "ENGINE"}, source=source)
@@ -24,176 +25,223 @@ class TradingEngine:
         interpretation = await self.parser.parse_signal(raw_text)
         category = interpretation.get("category", "DISCARD")
         data = interpretation.get("data", {})
+        thought = ""
 
         if category == "DISCARD" or category == "NOISE":
-            logger.info(f"  [Ignorado] Motivo: {interpretation.get('reason', 'Ruido detectado')}")
-            self.db.log_event("AI_THOUGHT", f"Mensaje ignorado: {interpretation.get('reason', 'No es una instrucción de trading')}", {"category": category}, source=source)
-            return
+            reason = interpretation.get('reason', 'Ruido detectado')
+            thought = f"🤔 No procesado: {reason}"
+            logger.info(f"  [Ignorado] Motivo: {reason}")
+            self.db.log_event("AI_THOUGHT", f"Mensaje ignorado: {reason}", {"category": category}, source=source)
+            return thought
 
         if category == "ERROR":
-            logger.error(f"  [Error] Fallo en interpretación: {interpretation.get('reason')}")
-            self.db.log_event("AI_THOUGHT", "Error crítico en interpretación de señal.", {"error": interpretation.get('reason')}, source=source)
-            return
+            reason = interpretation.get('reason', 'Fallo desconocido')
+            thought = f"❌ Error en análisis: {reason}"
+            logger.error(f"  [Error] Fallo en interpretación: {reason}")
+            self.db.log_event("AI_THOUGHT", "Error crítico en interpretación de señal.", {"error": reason}, source=source)
+            return thought
 
         # 2. Ejecución según Categoría equilibrada
         if category == "NEW_SIGNAL":
-            # Verificación de seguridad mínima
             if not data or "symbol" not in data:
-                logger.warning(f"  [Rechazada] Datos insuficientes para NEW_SIGNAL: {data}")
-                self.db.log_event("AI_THOUGHT", "Señal rechazada: Faltan datos críticos (Symbol/Side).", source=source)
-                return
-            await self.handle_new_signal(data, raw_text, source=source)
+                thought = "⚠️ Datos insuficientes para abrir operación."
+                logger.warning(f"  [Rechazada] {thought}")
+                self.db.log_event("AI_THOUGHT", thought, source=source)
+                return thought
+            
+            # Ejecutamos y atrapamos el resultado
+            res = await self.handle_new_signal(data, raw_text, source=source)
+            return res
             
         elif category in ["PARTIAL_CLOSE", "MOVE_BE", "CLOSE_FULL"]:
             if not data or "symbol" not in data:
-                 # Intentamos recuperación de símbolo desde la DB si es gestión
                  active = self.db.get_active_trades()
                  if len(active) == 1:
                      data["symbol"] = active[0]["symbol"]
                  else:
-                    logger.warning(f"  [Error] No se puede gestionar sin símbolo claro.")
-                    self.db.log_event("AI_THOUGHT", "Gestión fallida: No se detectó símbolo y hay múltiples trades.", source=source)
-                    return
-            await self.handle_management_order(category, data, source=source)
+                    thought = "⚠️ Gestión fallida: Múltiples trades abiertos, especifique moneda."
+                    logger.warning(f"  [Error] {thought}")
+                    self.db.log_event("AI_THOUGHT", thought, source=source)
+                    return thought
+            
+            res = await self.handle_management_order(category, data, source=source)
+            return res
             
         else:
-            logger.warning(f"  [Alerta] Categoría no procesable en este flujo: {category}")
+            thought = f"🛸 Categoría '{category}' no procesable automáticamente."
+            logger.warning(f"  [Alerta] {thought}")
+            return thought
 
     async def handle_new_signal(self, parsed, raw_text, source="Global"):
-        """Lógica original de apertura de trades."""
-        symbol = parsed['symbol']
-        side = parsed['side'].lower()
-        logger.info(f"  [OK] Nueva señal detectada: {symbol} {side}")
-        self.db.log_event("AI_THOUGHT", f"Señal detectada para {symbol} ({side.upper()}). Iniciando validación...", {"symbol": symbol}, source=source)
+        """Lógica original de apertura de trades. Retorna 'thought'."""
+        symbol = parsed.get('symbol')
+        side = parsed.get('side', '').lower()
         
-        # Normalización de Side
+        logger.info(f"  [OK] Nueva señal detectada: {symbol} {side}")
+        self.db.log_event("AI_THOUGHT", f"Señal detectada para {symbol} ({side.upper()}). Iniciando normalización...", {"symbol": symbol}, source=source)
+        
+        # 1. Normalización de Side
         if side not in ["long", "short"]:
-            logger.warning(f"  [Rechazada] Invalid side: {side}")
-            self.db.log_event("AI_THOUGHT", f"Operación rechazada: Lado '{side}' no válido.")
-            return
+            thought = f"⚠️ Lado '{side}' no válido."
+            self.db.log_event("AI_THOUGHT", f"Operación rechazada: {thought}")
+            return thought
 
-        # Validación
+        # 2. Pre-procesamiento de Precios (Casting y Mercado)
+        try:
+            entry = parsed.get("entry", 0)
+            order_type = "limit"
+            # Manejo de "mercado" o 0
+            if str(entry).lower() in ["mercado", "market", "0", "0.0"] or entry == 0:
+                market_data = await self.exchange.get_market_price(symbol)
+                if "price" in market_data:
+                    entry = float(market_data["price"])
+                    parsed["entry"] = entry
+                    order_type = "market"
+                    logger.info(f"  [Engine] Precio de entrada fijado a MERCADO: {entry}")
+                else:
+                    error_msg = market_data.get("error", "No se pudo obtener el precio de mercado")
+                    logger.error(f"  [Error] No se pudo obtener el precio de mercado: {error_msg}")
+                    self.db.log_event("ENGINE", f"❌ Error al obtener precio mercado: {error_msg}", source=source)
+                    return f"❌ Error al obtener precio de mercado: {error_msg}"
+            else:
+                entry = float(entry)
+                parsed["entry"] = entry
+
+            # SL por defecto (2%) si no existe
+            sl = parsed.get("sl", 0)
+            if not sl or str(sl).lower() in ["0", "0.0"] or sl == 0:
+                if side == "long":
+                    sl = entry * 0.98 # 2% abajo
+                else:
+                    sl = entry * 1.02 # 2% arriba
+                parsed["sl"] = float(sl)
+                logger.info(f"  [Engine] SL no detectado. Aplicando SL automático (2%): {parsed['sl']}")
+
+            # TP opcional (solo casting)
+            tp = parsed.get("tp", 0)
+            if tp:
+                parsed["tp"] = float(tp)
+            else:
+                parsed["tp"] = 0.0
+
+        except Exception as e:
+            thought = f"⚠️ Error procesando precios: {str(e)}"
+            logger.error(f"  [Error] {thought}")
+            return thought
+
+        # 3. Validación
         validation = self.validator.validate_signal(parsed)
         if not validation["valid"]:
-            logger.warning(f"  [Rechazada] {validation['reason']}")
-            self.db.log_event("AI_THOUGHT", f"Validación fallida: {validation['reason']}", source=source)
-            return
+            thought = f"⚠️ {validation['reason']}"
+            logger.warning(f"  [Rechazada] {thought}")
+            self.db.log_event("AI_THOUGHT", f"Validación fallida: {thought}", source=source)
+            return thought
         
-        self.db.log_event("AI_THOUGHT", "Validación exitosa. Calculando parámetros de riesgo y mercado...", source=source)
+        self.db.log_event("AI_THOUGHT", "Validación exitosa. Calculando parámetros de riesgo...", source=source)
 
-        # Distancia de mercado
-        market = await self.exchange.get_market_price(parsed["symbol"])
-        dist = self.validator.check_market_distance(parsed["entry"], market["price"])
-        
-        # 2. Análisis de Riesgo Dinámico
+        # 4. Riesgo
         balance_data = await self.exchange.get_balance()
         capital = balance_data.get("balance", 1000.0)
-        
-        # Obtenemos reglas de la DB
         settings = self.db.get_settings()
-        risk_strat = settings.get("risk_strategy", "CAP")
-        max_lev = int(settings.get("max_leverage", 10))
-        max_total_margin = float(settings.get("max_total_margin_usdt", 300))
-        max_trade_margin = float(settings.get("max_trade_margin_usdt", 100))
-        default_risk = float(settings.get("risk_per_trade_pct", 1.0))
         
-        # Calculamos margen actual
-        active_trades = self.db.get_active_trades()
-        current_margin = sum(float(t.get("margin", 0)) for t in active_trades)
-        # Mejor: si tenemos el dato del trade lo usamos
-        
-        logger.info(f"  [Riesgo] Margen Actual: {current_margin:.2f} / Límite: {max_total_margin:.2f}")
-        
-        if current_margin >= max_total_margin:
-            logger.warning(f"  [Rechazada] Límite de margen excedido ({current_margin:.2f} >= {max_total_margin:.2f})")
-            self.db.log_event("ENGINE", f"Señal rechazada: Margen total {max_total_margin} agotado.", source=source)
-            return
-
         risk_res = self.risk_manager.calculate_position_size(
             capital=capital,
-            risk_pct=parsed.get("risk", default_risk),
-            entry=parsed["entry"],
-            sl=parsed["sl"],
-            risk_strategy=risk_strat,
-            max_trade_margin=max_trade_margin,
-            max_total_margin=max_total_margin,
-            current_total_margin=current_margin
+            risk_pct=float(parsed.get("risk", settings.get("risk_per_trade_pct", 1.0))),
+            entry=float(parsed["entry"]),
+            sl=float(parsed["sl"]),
+            risk_strategy=settings.get("risk_strategy", "CAP"),
+            max_trade_margin=float(settings.get("max_trade_margin_usdt", 100)),
+            max_total_margin=float(settings.get("max_total_margin_usdt", 300)),
+            current_total_margin=sum(float(t.get("margin", 0)) for t in self.db.get_active_trades()),
+            min_notional_usdt=5.0 # Mínimo de seguridad para evitar errores de exchange
         )
         
         if risk_res.get("status") == "DISCARDED":
-            logger.warning(f"  [Rechazada] Regla de riesgo: {risk_res['reason']}")
-            self.db.log_event("ENGINE", f"Señal rechazada: {risk_res['reason']}", source=source)
-            return
+            thought = f"⚠️ Operación descartada: {risk_res['reason']}"
+            logger.warning(f"  [Descartada] {thought}")
+            self.db.log_event("ENGINE", thought, source=source)
+            return thought
             
         pos_size = risk_res["position_size"]
+        leverage = min(parsed.get("leverage", int(settings.get("max_leverage", 10))), int(settings.get("max_leverage", 10)))
+        
+        # 4.1 Establecer Apalancamiento antes de la orden
+        try:
+            await self.exchange.set_leverage(symbol, leverage)
+            logger.info(f"  [Engine] Apalancamiento establecido a {leverage}x para {symbol}")
+        except Exception as lev_err:
+            logger.warning(f"  [Engine] No se pudo establecer apalancamiento: {lev_err}")
 
-        # 3. Ejecución
-        # Forzamos el apalancamiento máximo si el sugerido es mayor
-        leverage = min(parsed.get("leverage", max_lev), max_lev)
+        # 4.2 Ajustar cantidad según lot_size del exchange
+        market_info = await self.exchange.get_market_info(symbol)
+        lot_size = market_info.get("lot_size", 0.001)
+        precision = market_info.get("precision", {}).get("amount", 3)
         
-        logger.info(f"  [Motor] Abriendo {parsed['symbol']} con {pos_size} USDT a {leverage}x")
+        raw_qty = pos_size / parsed["entry"]
+        # Aseguramos que sea al menos el mínimo lot_size
+        qty = max(raw_qty, lot_size)
         
+        # Redondear a la precisión del exchange
+        import math
+        qty = math.floor(qty * (10**precision)) / (10**precision)
+        
+        actual_margin = qty * parsed["entry"] / leverage
+        logger.info(f"  [Engine] Cantidad final: {qty} (Basada en lot_size {lot_size}). Margen estimado: {actual_margin:.2f} USDT")
+
         # Ejecución
-        self.db.log_event("AI_THOUGHT", f"Enviando orden LIMIT a Bitget para {symbol} @ {parsed['entry']}...", source=source)
         order = await self.exchange.create_order(
-            parsed["symbol"], parsed["side"], "limit", pos_size / parsed["entry"], parsed["entry"]
+            parsed["symbol"], parsed["side"], order_type, qty, parsed["entry"]
         )
         
         if order["status"] == "success":
-            logger.info(f"  [ÉXITO] Trade abierto: {order['order_id']}")
-            self.db.log_event("AI_THOUGHT", f"¡Operación abierta con éxito! ID: {order['order_id']}", {"order": order}, source=source)
-            sid = self.db.save_signal(raw_text, source=source, **parsed)["id"]
-            self.db.save_trade(sid, parsed["symbol"], parsed["side"], parsed["entry"], margin=pos_size)
             await self.exchange.set_sl_tp(parsed["symbol"], parsed["sl"], parsed["tp"])
+            sid = self.db.save_signal(raw_text, source=source, **parsed)["id"]
+            # Guardamos el margen REAL utilizado (estimado)
+            self.db.save_trade(sid, parsed["symbol"], parsed["side"], parsed["entry"], margin=actual_margin)
+            thought = f"✅ Trade abierto: {symbol} {side.upper()} @ {parsed['entry']} (Size: {actual_margin:.2f} USDT, Lev: {leverage}x)"
+            self.db.log_event("AI_THOUGHT", f"¡Éxito! {thought}", source=source)
+            return thought
         else:
-            self.db.log_event("AI_THOUGHT", "Fallo en ejecución de orden en Exchange.", source=source)
+            error_msg = order.get("message", "Error desconocido")
+            thought = f"❌ Error al enviar orden al Exchange: {error_msg}"
+            logger.error(f"  [Exchange] {thought}")
+            self.db.log_event("AI_THOUGHT", thought, source=source)
+            return thought
 
     async def handle_management_order(self, category, data, source="Global"):
-        """Lógica de gestión de trades activos (Parciales, BE, Cierres)."""
+        """Lógica de gestión de trades activos. Retorna 'thought'."""
         symbol = data.get("symbol")
         
-        # 1. Recuperación de Símbolo (Si es necesario)
+        # 1. Recuperación de Símbolo
         if not symbol or symbol == "UNKNOWN" or symbol == "ALL":
             active = self.db.get_active_trades()
             if not active:
-                logger.info("  [Gestión] No hay operaciones activas para gestionar.")
-                return
-            
-            # Si le pedimos gestionar UNA pero no dijo cuál y hay varias -> Error
-            # Pero si es CLOSE_FULL sin moneda -> Procedemos con TODAS
+                return "ℹ️ No hay operaciones activas para gestionar."
             if category != "CLOSE_FULL" and len(active) > 1:
-                logger.error(f"  [Error] Múltiples posiciones abiertas. Especifique moneda para {category}.")
-                return
-            
+                return f"⚠️ Especifique moneda para {category} (Múltiples trades)."
             if category == "CLOSE_FULL" and (not symbol or symbol == "ALL"):
-                # CASO ESPECIAL: Liquidación Masiva
-                logger.info(f"  [Gestión] Iniciando liquidación MASIVA de {len(active)} activos.")
-                for t in active:
-                    await self._execute_close(t["symbol"])
-                return
-            
-            # Fallback al único símbolo activo
+                for t in active: await self._execute_close(t["symbol"])
+                return f"✅ Liquidación masiva completada ({len(active)} trades)."
             symbol = active[0]["symbol"]
 
-        logger.info(f"  [Gestión] Ejecutando {category} para {symbol}")
-
         if category == "PARTIAL_CLOSE":
-            percent = data.get("percent", 30) / 100.0
-            await self.exchange.close_position_partial(symbol, pct=percent)
-            pos = await self.exchange.get_position(symbol)
-            if pos and pos.get("entry_price", 0) > 0:
-                await self.exchange.update_sl(symbol, pos["entry_price"])
+            pct = data.get("percent", 30)
+            await self.exchange.close_position_partial(symbol, pct=pct/100.0)
+            return f"✅ Cierre parcial del {pct}% ejecutado para {symbol}. SL movido a entrada."
 
         elif category == "CLOSE_FULL":
             await self._execute_close(symbol)
+            return f"✅ Posición de {symbol} cerrada completamente."
 
         elif category == "MOVE_BE":
             trade = self.db.get_trade_by_symbol(symbol)
             if trade:
                 await self.exchange.update_sl(symbol, trade["entry_price"])
                 self.db.update_trade_status(trade["id"], tp1_hit=True, sl_moved=True)
-                logger.info(f"  [Auto] SL movido a Break-Even para {symbol} (Fuente: {source})")
-                self.db.log_event("AI_THOUGHT", f"SL movido a Break-Even para {symbol}.", source=source)
+                return f"🛡️ SL movido a Break-Even para {symbol}."
+            return f"⚠️ No se encontró trade activo para {symbol}."
+        
+        return "ℹ️ Instrucción de gestión procesada."
 
     async def close_trade_by_id(self, trade_id: int):
         """Cierre de emergencia manual desde el Dashboard."""

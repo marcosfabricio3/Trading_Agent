@@ -1,147 +1,228 @@
 import os
-import ccxt
-import random
 import asyncio
-from fastmcp import FastMCP
+import ccxt
 from dotenv import load_dotenv
-from opencode.mcp.db_server import log_event
+from fastmcp import FastMCP
+from typing import List, Dict
 
-load_dotenv()
+# Configuración del servidor MCP
+mcp = FastMCP("Bitget Exchange Server")
 
-mcp = FastMCP("bitget")
-
-# --- Configuración del Exchange ---
-api_key = os.getenv("BITGET_API_KEY")
-api_secret = os.getenv("BITGET_SECRET_KEY")
-api_passphrase = os.getenv("BITGET_PASSPHRASE")
-
-# Detectar modo Simulación vs Real
-is_mock = not api_key or "your_api_key" in api_key.lower()
-
-if not is_mock:
-    exchange = ccxt.bitget({
+def get_exchange():
+    """
+    Inicializa y retorna la instancia del exchange configurada con API Keys.
+    """
+    load_dotenv()
+    api_key = os.getenv("BITGET_API_KEY")
+    api_secret = os.getenv("BITGET_SECRET_KEY")
+    api_passphrase = os.getenv("BITGET_PASSPHRASE")
+    
+    if not all([api_key, api_secret, api_passphrase]):
+        raise ValueError("Faltan las API Keys de Bitget en el archivo .env")
+        
+    return ccxt.bitget({
         'apiKey': api_key,
         'secret': api_secret,
         'password': api_passphrase,
         'enableRateLimit': True,
         'options': {
-            'defaultType': 'swap', # USDT-M Futures
+            'defaultType': 'swap'
         }
     })
-else:
-    exchange = None
-    log_event("SYSTEM", "Bitget en modo SIMULACIÓN (MOCK). Añade tus llaves al .env para operar real.", source="Bitget")
+
+# Instancia global del exchange (Síncrona)
+exchange = get_exchange()
+current_pos_mode = "one_way_mode" # Default
+
+def initialize_bitget():
+    """
+    Detecta el modo de posición de la cuenta al inicio.
+    """
+    global current_pos_mode
+    try:
+        print("[Bitget] Cargando mercados...")
+        exchange.load_markets()
+        
+        print("[Bitget] Detectando modo de posición...")
+        # En v2 Unified account, fetch_balance o una llamada privada nos da el modo
+        # Usamos la llamada privada v2 para estar seguros
+        res = exchange.private_get_v2_mix_account_account({'productType': 'usdt-futures'})
+        if 'data' in res and len(res['data']) > 0:
+            current_pos_mode = res['data'][0].get('posMode', 'one_way_mode')
+            print(f"[Bitget] MODO DETECTADO: {current_pos_mode}")
+        else:
+            print("[Bitget] No se pudo detectar modo, usando One-way por defecto.")
+    except Exception as e:
+        print(f"[Bitget] Error en inicialización: {e}")
+
+# Inicializamos
+initialize_bitget()
 
 @mcp.tool()
-async def get_balance():
-    """Retorna el balance disponible en USDT (Cuenta de Futuros)."""
-    if is_mock:
-        return {"balance": 500.0, "currency": "USDT", "mode": "mock"}
-    
+async def get_balance() -> Dict:
+    """
+    Obtiene el balance de la cuenta de futuros (USDT-M).
+    """
     try:
-        balance = exchange.fetch_balance()
-        # En Bitget v2, el balance total está en 'total' o 'free' de USDT
-        usdt_balance = balance.get('USDT', {}).get('free', 0.0)
-        return {"balance": float(usdt_balance), "currency": "USDT", "mode": "real"}
+        balance = await asyncio.to_thread(exchange.fetch_balance)
+        usdt_free = balance.get('USDT', {}).get('free', 0.0)
+        return {"balance": float(usdt_free), "currency": "USDT", "mode": "real"}
     except Exception as e:
         return {"error": str(e), "mode": "real"}
 
 @mcp.tool()
-async def get_market_price(symbol: str):
-    """Obtiene el precio actual de mercado (Ticker) para un símbolo."""
-    if is_mock:
-        prices = {"XRPUSDT": 1.35, "BTCUSDT": 95000.0, "ETHUSDT": 2700.0}
-        return {"price": prices.get(symbol, 1.0), "mode": "mock"}
-    
+async def get_market_price(symbol: str) -> Dict:
+    """
+    Obtiene el precio actual de un símbolo (ej: BTCUSDT).
+    """
     try:
-        ticker = exchange.fetch_ticker(symbol)
+        if "/" not in symbol:
+            if "USDT" in symbol:
+                symbol = f"{symbol.replace('USDT', '')}/USDT:USDT"
+            
+        ticker = await asyncio.to_thread(exchange.fetch_ticker, symbol)
         return {"price": float(ticker['last']), "mode": "real"}
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": str(e), "mode": "real"}
 
 @mcp.tool()
-async def get_position(symbol: str):
-    """Retorna la posición abierta actual para un símbolo."""
-    if is_mock:
-        return {"symbol": symbol, "size": 0.0, "mode": "mock"}
-    
+async def get_position(symbol: str) -> Dict:
+    """
+    Retorna la posición abierta actual para un símbolo específico.
+    """
     try:
-        positions = exchange.fetch_positions([symbol])
+        if "/" not in symbol:
+            if "USDT" in symbol:
+                symbol = f"{symbol.replace('USDT', '')}/USDT:USDT"
+                
+        positions = await asyncio.to_thread(exchange.fetch_positions, [symbol])
         if positions:
-            pos = positions[0]
-            size = float(pos['contracts'])
-            if size > 0:
-                return {
-                    "symbol": symbol,
-                    "size": size,
-                    "side": pos['side'], # 'long' or 'short'
-                    "entry_price": float(pos['entryPrice']),
-                    "unrealized_pnl": float(pos['unrealizedPnl']),
-                    "mode": "real"
-                }
+            # Buscamos la primera posición con tamaño > 0
+            for pos in positions:
+                size = float(pos.get('contracts', 0) or 0)
+                if size > 0:
+                    return {
+                        "symbol": symbol,
+                        "size": size,
+                        "side": pos.get('side'),
+                        "entry_price": float(pos.get('entryPrice', 0) or 0),
+                        "unrealized_pnl": float(pos.get('unrealizedPnl', 0) or 0),
+                        "mode": "real"
+                    }
         return {"symbol": symbol, "size": 0.0, "mode": "real"}
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": str(e), "mode": "real"}
 
 @mcp.tool()
-async def create_order(symbol: str, side: str, order_type: str, qty: float, price: float = None):
-    """Crea una orden de mercado o límite en Bitget Futuros."""
-    if is_mock:
-        order_id = f"mock_{random.randint(1000, 9999)}"
-        return {"status": "success", "order_id": order_id, "mode": "mock"}
-    
+async def get_market_info(symbol: str) -> Dict:
+    """
+    Obtiene información técnica de un mercado (límites, lot size, precisión).
+    """
     try:
-        ccxt_side = 'buy' if side.lower() in ['long', 'buy'] else 'sell'
+        if "/" not in symbol:
+            if "USDT" in symbol:
+                symbol = f"{symbol.replace('USDT', '')}/USDT:USDT"
         
-        # Ajustar cantidad a precisión del exchange
-        markets = exchange.load_markets()
-        market = markets.get(symbol)
-        if market:
-            qty = float(exchange.amount_to_precision(symbol, qty))
-            if price:
-                price = float(exchange.price_to_precision(symbol, price))
-
-        order = exchange.create_order(
-            symbol=symbol,
-            type=order_type.lower(),
-            side=ccxt_side,
-            amount=qty,
-            price=price,
-            params={'reduceOnly': False}
-        )
-        return {"status": "success", "order_id": order['id'], "mode": "real"}
+        await asyncio.to_thread(exchange.load_markets)
+        market = exchange.market(symbol)
+        return {
+            "status": "success",
+            "symbol": symbol,
+            "precision": market.get("precision", {}),
+            "limits": market.get("limits", {}),
+            "lot_size": market.get("limits", {}).get("amount", {}).get("min", 0.001)
+        }
     except Exception as e:
-        log_event("ERROR", f"Error al crear orden en Bitget: {e}", {"symbol": symbol})
         return {"status": "error", "message": str(e)}
 
 @mcp.tool()
-async def set_sl_tp(symbol: str, sl_price: float = None, tp_price: float = None):
-    """Configura el Stop Loss y Take Profit para una posición abierta."""
-    if is_mock:
-        return {"status": "success", "sl": sl_price, "tp": tp_price, "mode": "mock"}
-    
+async def set_leverage(symbol: str, leverage: int, margin_mode: str = 'cross') -> Dict:
+    """
+    Establece el apalancamiento para un símbolo.
+    """
+    try:
+        if "/" not in symbol:
+            if "USDT" in symbol:
+                symbol = f"{symbol.replace('USDT', '')}/USDT:USDT"
+        
+        # In Bitget set_leverage takes (leverage, symbol, params)
+        res = await asyncio.to_thread(exchange.set_leverage, int(leverage), symbol)
+        return {"status": "success", "leverage": leverage, "result": res}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@mcp.tool()
+async def create_order(symbol: str, side: str, order_type: str, qty: float, price: float = None) -> Dict:
+    """
+    Crea una orden detectando automáticamente si la cuenta es One-Way o Hedge.
+    """
+    try:
+        if "/" not in symbol:
+            if "USDT" in symbol:
+                symbol = f"{symbol.replace('USDT', '')}/USDT:USDT"
+            
+        ccxt_side = 'buy' if side.lower() in ['long', 'buy'] else 'sell'
+        params = {}
+
+        if current_pos_mode == "hedge_mode":
+            # HEDGE MODE: Requiere posSide (long/short)
+            params['posSide'] = 'long' if side.lower() in ['long', 'buy'] else 'short'
+        else:
+            # ONE-WAY MODE: Requiere tradeSide (open/close)
+            params['tradeSide'] = 'open' # Simplificado: buy=open_long, sell=open_short
+            # Para abrir, siempre es 'open'. Para cerrar usaremos las herramientas de cierre.
+            
+        qty = float(exchange.amount_to_precision(symbol, qty)) if hasattr(exchange, 'amount_to_precision') else qty
+        
+        if order_type.lower() == "market":
+            order = await asyncio.to_thread(exchange.create_order, symbol, "market", ccxt_side, qty, None, params)
+        else:
+            if price:
+                price = float(exchange.price_to_precision(symbol, price)) if hasattr(exchange, 'price_to_precision') else price
+            order = await asyncio.to_thread(exchange.create_order, symbol, "limit", ccxt_side, qty, price, params)
+            
+        return {"status": "success", "order": order}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@mcp.tool()
+async def set_sl_tp(symbol: str, sl_price: float = None, tp_price: float = None) -> Dict:
+    """
+    Configura SL/TP.
+    En One-Way se usa tradeSide:close. En Hedge se usa posSide.
+    """
     try:
         pos = await get_position(symbol)
         if pos.get("size", 0) == 0:
-            return {"status": "error", "message": "No hay posición activa para poner SL/TP"}
+            return {"status": "error", "message": "No hay posición activa"}
+            
+        pos_side = pos['side'] # 'long' o 'short'
+        close_side = 'sell' if pos_side == 'long' else 'buy'
         
-        # El lado para cerrar debe ser el opuesto al actual
-        close_side = 'sell' if pos['side'] == 'long' else 'buy'
+        params = {'reduceOnly': True}
+        if current_pos_mode == "hedge_mode":
+            params['posSide'] = pos_side
+        else:
+            params['tradeSide'] = 'close'
+
         results = {}
+        if "/" not in symbol:
+            if "USDT" in symbol:
+                symbol = f"{symbol.replace('USDT', '')}/USDT:USDT"
 
         if sl_price:
-            # Orden de Stop Loss (Trigger)
-            sl_order = exchange.create_order(
-                symbol, 'market', close_side, pos['size'], 
-                params={'stopLossPrice': sl_price, 'reduceOnly': True}
+            p_sl = params.copy()
+            p_sl['stopLossPrice'] = sl_price
+            sl_order = await asyncio.to_thread(
+                exchange.create_order, symbol, 'market', close_side, pos['size'], None, p_sl
             )
             results["sl_id"] = sl_order['id']
-        
+            
         if tp_price:
-            # Orden de Take Profit (Trigger)
-            tp_order = exchange.create_order(
-                symbol, 'market', close_side, pos['size'], 
-                params={'takeProfitPrice': tp_price, 'reduceOnly': True}
+            p_tp = params.copy()
+            p_tp['takeProfitPrice'] = tp_price
+            tp_order = await asyncio.to_thread(
+                exchange.create_order, symbol, 'market', close_side, pos['size'], None, p_tp
             )
             results["tp_id"] = tp_order['id']
             
@@ -150,40 +231,40 @@ async def set_sl_tp(symbol: str, sl_price: float = None, tp_price: float = None)
         return {"status": "error", "message": str(e)}
 
 @mcp.tool()
-async def close_position_partial(symbol: str, pct: float):
-    """Cierra un porcentaje de la posición actual."""
-    if is_mock:
-        return {"status": "success", "closed_pct": pct, "mode": "mock"}
-    
+async def close_position_partial(symbol: str, pct: float) -> Dict:
+    """
+    Cierra posición parcial usando el modo correcto.
+    """
     try:
         pos = await get_position(symbol)
         if pos.get("size", 0) > 0:
             close_qty = pos['size'] * pct
-            side = 'sell' if pos['side'] == 'long' else 'buy'
-            exchange.create_order(symbol, 'market', side, close_qty, params={'reduceOnly': True})
-            return {"status": "success", "message": f"Cerrado {pct*100}% de {symbol}", "mode": "real"}
-        return {"status": "error", "message": "No hay posición abierta.", "mode": "real"}
+            pos_side = pos['side']
+            close_side = 'sell' if pos_side == 'long' else 'buy'
+            
+            if "/" not in symbol:
+                if "USDT" in symbol:
+                    symbol = f"{symbol.replace('USDT', '')}/USDT:USDT"
+                    
+            params = {'reduceOnly': True}
+            if current_pos_mode == "hedge_mode":
+                params['posSide'] = pos_side
+            else:
+                params['tradeSide'] = 'close'
+            
+            await asyncio.to_thread(exchange.create_order, symbol, 'market', close_side, close_qty, None, params)
+            return {"status": "success", "message": f"Cerrado {pct*100}% de {symbol}"}
+        return {"status": "error", "message": "No hay posición abierta."}
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
 @mcp.tool()
-async def update_sl(symbol: str, new_sl: float):
-    """Actualiza el Stop Loss de una posición moviendo el gatillo."""
-    if is_mock:
-        return {"status": "success", "new_sl": new_sl, "mode": "mock"}
-    
-    try:
-        # En Bitget/CCXT v2 lo más seguro es cancelar el SL anterior y poner uno nuevo
-        # Para simplificar este bot inicial, simplemente enviamos una nueva orden de SL
-        # que reemplaza o añade protección.
-        return await set_sl_tp(symbol, sl_price=new_sl)
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
-
-@mcp.tool()
-async def close_position_full(symbol: str):
-    """Liquida el 100% de la posición."""
+async def close_position_full(symbol: str) -> Dict:
     return await close_position_partial(symbol, pct=1.0)
+
+@mcp.tool()
+async def update_sl(symbol: str, new_sl: float) -> Dict:
+    return await set_sl_tp(symbol, sl_price=new_sl)
 
 if __name__ == "__main__":
     mcp.run()

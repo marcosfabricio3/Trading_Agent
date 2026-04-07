@@ -13,7 +13,6 @@ class TelegramService:
         self.api_hash = os.getenv("TELEGRAM_API_HASH")
         self.phone = os.getenv("TELEGRAM_PHONE")
         
-        # Obtener chats de la DB y del .env
         from app.services import db
         try:
             db_settings = db.get_settings()
@@ -22,138 +21,287 @@ class TelegramService:
             db_chats = ""
             
         env_chats = os.getenv("TELEGRAM_TARGET_CHAT") or os.getenv("TELEGRAM_CHANNEL") or ""
-        
         combined = f"{db_chats},{env_chats}"
         self.target_chat_names = list(set([c.strip() for c in combined.split(",") if c.strip()]))
         
-        if not self.target_chat_names:
-            self.target_chat_names = ["RETO 1k a 10k"]
-            
         self.client = None
-        self.topic_cache = {} # {chat_id: {topic_id: topic_name}}
+        self.monitored_ids = set()
+        self.monitored_names = {} # {id: name}
+        self.topic_cache = {}    # {chat_id: {topic_id: topic_name}}
+        self.me_id = None
+
+        # Mapeo de Nombres y IDs para consistencia con Dashboard
+        self.id_to_name = {}
+        # Primero procesamos los nombres (prioridad estética para el Dashboard)
+        # Luego los IDs (para asegurar captura si el nombre cambia)
+        for entry in self.target_chat_names:
+            clean = entry.strip()
+            if not (clean.startswith("-") or clean.isdigit()):
+                # Es un nombre - lo guardaremos para buscarlo por nombre después
+                pass
+            else:
+                try:
+                    cid = int(clean)
+                    self.monitored_ids.add(cid)
+                    # Solo lo ponemos si no hay ya un nombre mejor (pero aquí aún no iteramos dialogs)
+                except: pass
 
     async def start(self):
-        """
-        Inicia el cliente de Telegram y busca los chats objetivos.
-        """
         if not self.api_id or not self.api_hash:
-            logger.error("[Telegram] Faltan credenciales (API_ID/HASH) en el archivo .env")
+            logger.error("[Telegram] Faltan credenciales en el .env")
             return
 
-        logger.info(f"[Telegram] Iniciando sesión para {self.phone}...")
+        logger.info(f"[Telegram] Conectando para {self.phone}...")
         self.client = TelegramClient('trading_session', int(self.api_id), self.api_hash)
-        
         await self.client.start(phone=self.phone)
-        logger.info("[Telegram] Cliente autenticado correctamente.")
+        
+        # 1. Identificar 'ME'
+        me = await self.client.get_me()
+        self.me_id = me.id
+        self.monitored_ids.add(self.me_id)
+        self.id_to_name[self.me_id] = "Mensajes Guardados (ME)"
 
-        # Buscar los IDs de los chats por nombre (ahora case-insensitive y en archivados)
-        target_entities = []
+        # 2. Descubrir Grupos y mapear IDs con prioridad al nombre configurado
         async for dialog in self.client.iter_dialogs(archived=True):
-            dialog_name_lower = dialog.name.lower()
+            d_name = dialog.name
+            d_id = dialog.id
             
-            # Verificamos si el nombre del diálogo coincide con algún chat objetivo
-            matching_name = next((name for name in self.target_chat_names if name.lower() == dialog_name_lower), None)
+            for target in self.target_chat_names:
+                clean_target = target.strip()
+                # Si el nombre coincide, ganamos la etiqueta legible
+                if d_name.lower() == clean_target.lower():
+                    self.monitored_ids.add(d_id)
+                    # IMPORTANTE: Si ya teníamos un ID aquí, el nombre TIENE PRIORIDAD
+                    self.id_to_name[d_id] = clean_target 
+                    logger.info(f"[Telegram] Vinculado: '{d_name}' => '{clean_target}'")
+                
+                # Si el ID coincide, solo lo ponemos si no hay nombre ya asignado
+                elif str(d_id) == clean_target:
+                    self.monitored_ids.add(d_id)
+                    if d_id not in self.id_to_name:
+                        self.id_to_name[d_id] = clean_target
+                        logger.info(f"[Telegram] Vinculado por ID: {d_id}")
+
+        # 4. HANDLER UNIVERSAL
+        @self.client.on(events.NewMessage())
+        async def universal_handler(event):
+            if not event.raw_text: return
             
-            if matching_name:
-                target_entities.append(dialog)
-                logger.info(f"[Telegram] Chat monitoreado activo: {dialog.name} (ID: {dialog.id})")
-                
-                # Si es un foro, cachear los temas (Topics)
-                if getattr(dialog.entity, 'forum', False):
-                    self.topic_cache[dialog.id] = {}
-                    try:
-                        topics_res = await self.client(functions.channels.GetForumTopicsRequest(
-                            channel=dialog.entity,
-                            offset_date=None, offset_id=0, offset_topic=0, limit=100
-                        ))
-                        for topic in topics_res.topics:
-                            if hasattr(topic, 'title'):
-                                self.topic_cache[dialog.id][topic.id] = topic.title
-                        logger.info(f"   |-- Temas cargados para {dialog.name}: {len(self.topic_cache[dialog.id])}")
-                    except Exception as e:
-                        logger.warning(f"   |-- No se pudieron cargar temas para {dialog.name}: {e}")
+            chat_id = event.chat_id
+            topic_id = None
+            
+            # Si el mensaje tiene un reply_to, verificamos si es un tema (Forum Topic)
+            if event.message.reply_to:
+                # El top_id es el identificador del tema en Telethon
+                topic_id = getattr(event.message.reply_to, 'reply_to_top_id', None)
+            
+            # Identificador unificado para hilos o chats simples
+            lookup_id = f"{chat_id}_{topic_id}" if topic_id else chat_id
+            
+            # Verificación de monitoreo (probamos el ID de tema primero, luego el de chat)
+            is_monitored = lookup_id in self.monitored_ids or chat_id in self.monitored_ids
+            
+            # Obtener nombre para el log
+            raw_source = self.id_to_name.get(lookup_id) or self.id_to_name.get(chat_id, str(chat_id))
+            
+            if is_monitored:
+                try:
+                    raw_text = event.raw_text
+                    # Obtenemos la etiqueta EXACTA (Priorizamos el Tema si existe)
+                    source = raw_source.strip()
+                    
+                    logger.info(f"[Telegram] CAPTURA de '{source}': {raw_text[:40]}...")
+                    
+                    # El motor guardará el log con este 'source'
+                    await self.engine.process_signal(raw_text, source=source)
+                    
+                except Exception as e:
+                    logger.error(f"[Telegram] Error en procesamiento: {e}")
+            else:
+                # Log a nivel INFO para que el usuario sepa que llegó algo y por qué se ignora
+                logger.info(f"[Telegram] IGNORADO: Mensaje de '{raw_source}' (ID: {chat_id}) - No está en Monitoreo.")
 
-        # --- LOGICA DE DESCUBRIMIENTO DE TEMAS SI EL USUARIO PUSO EL NOMBRE DEL TEMA ---
-        # Si algún chat no se encontró como Diálogo, buscamos si es un Tema en algún foro visible
-        found_names = [e.name.lower() for e in target_entities]
-        missing_names = [name for name in self.target_chat_names if name.lower() not in found_names]
+        logger.info(f"[Telegram] ESCUCHA ACTIVA. Etiquetas configuradas: {list(self.id_to_name.values())}")
         
-        if missing_names:
-            logger.info(f"[Telegram] Buscando {len(missing_names)} fuentes faltantes en los temas de comunidades...")
-            async for dialog in self.client.iter_dialogs(archived=True):
-                if getattr(dialog.entity, 'forum', False):
-                    try:
-                        topics_res = await self.client(functions.channels.GetForumTopicsRequest(
-                            channel=dialog.entity,
-                            offset_date=None, offset_id=0, offset_topic=0, limit=100
-                        ))
-                        for topic in topics_res.topics:
-                            if hasattr(topic, 'title') and topic.title.lower() in [m.lower() for m in missing_names]:
-                                # Añadimos el diálogo padre si no estaba ya
-                                if dialog not in target_entities:
-                                    target_entities.append(dialog)
-                                # Aseguramos que el tema esté en el caché
-                                if dialog.id not in self.topic_cache: self.topic_cache[dialog.id] = {}
-                                self.topic_cache[dialog.id][topic.id] = topic.title
-                                logger.info(f"[Telegram] ¡Tema detectado! '{topic.title}' en la comunidad '{dialog.name}'")
-                    except: pass
-        
-        if not target_entities:
-            logger.warning(f"[Telegram] No se encontró ninguno de los chats en {self.target_chat_names}. Escuchando globalmente.")
+        # Sincronización PROFUNDA al iniciar para cargar chats guardados en DB
+        from app.services import db
+        db_settings = db.get_settings()
+        saved_chats = db_settings.get("monitored_chats", "")
+        if saved_chats:
+            logger.info(f"[Telegram] Sincronizando chats persistentes: {saved_chats}")
+            await self.refresh_monitored_chats(saved_chats)
 
-        # Handler para cada chat encontrado
-        for entity in target_entities:
-            @self.client.on(events.NewMessage(chats=entity.id))
-            async def handler(event, chat_name=entity.name, chat_id=entity.id):
-                raw_text = event.raw_text
-                
-                # Detectar si el mensaje viene de un Tema (Topic)
-                topic_name = None
-                if event.message.reply_to:
-                    reply_to = event.message.reply_to
-                    # En foros, el top_msg_id suele ser el ID del tema
-                    topic_id = getattr(reply_to, 'reply_to_top_id', None) or getattr(reply_to, 'reply_to_msg_id', None)
-                    if topic_id and chat_id in self.topic_cache:
-                        topic_name = self.topic_cache[chat_id].get(topic_id)
-                
-                source = f"{chat_name} -> {topic_name}" if topic_name else chat_name
-                
-                logger.info(f"[Telegram][{source}] Mensaje capturado.")
-                # Delegamos el procesamiento al motor con la fuente detallada
-                await self.engine.process_signal(raw_text, source=source)
-
-        logger.info(f"[Telegram] Escuchando en {len(target_entities)} fuentes: {', '.join([e.name for e in target_entities])}")
         await self.client.run_until_disconnected()
 
-    async def get_discoverable_chats(self):
+    async def get_all_dialogs(self):
         """
-        Retorna una lista de todos los chats, canales y temas accesibles para el usuario.
-        Útil para el panel de descubrimiento del Dashboard.
+        Escanea todos los chats accesibles para el usuario con soporte para Temas (Communities).
         """
-        if not self.client or not self.client.is_connected():
+        if not self.client or not await self.client.is_user_authorized():
+            logger.error("[Telegram] Cliente no autorizado.")
             return []
             
+        dialog_list = []
+        try:
+            logger.info("[Telegram] Iniciando escaneo profundo (Dialogs + Topics)...")
+            from telethon.tl.types import Channel, Chat
+            from telethon.tl.functions.channels import GetForumTopicsRequest
+            
+            async for dialog in self.client.iter_dialogs(limit=None):
+                d_type = "Usuario"
+                is_forum = False
+                
+                if isinstance(dialog.entity, Channel):
+                    d_type = "Canal"
+                    if getattr(dialog.entity, 'forum', False):
+                        is_forum = True
+                        d_type = "Comunidad"
+                    elif getattr(dialog.entity, 'megagroup', False):
+                        d_type = "Grupo"
+                elif isinstance(dialog.entity, Chat):
+                    d_type = "Grupo"
+                
+                if hasattr(dialog.entity, 'bot') and dialog.entity.bot:
+                    d_type = "Bot"
+                
+                # Agregar el diálogo principal
+                dialog_list.append({
+                    "id": dialog.id,
+                    "name": dialog.name or "Sin Nombre",
+                    "type": d_type,
+                    "unread": dialog.unread_count,
+                    "is_monitored": dialog.id in self.monitored_ids
+                })
+
+                # Si es un Foro (Comunidad), extraer sus temas (Topics)
+                if is_forum:
+                    try:
+                        # Obtenemos los temas recientes del foro
+                        topics = await self.client(GetForumTopicsRequest(
+                            channel=dialog.entity,
+                            offset_date=None,
+                            offset_id=0,
+                            offset_topic=0,
+                            limit=100
+                        ))
+                        from telethon.tl.types import ForumTopic
+                        for topic in topics.topics:
+                            if not isinstance(topic, ForumTopic):
+                                continue # Ignorar temas borrados o nulos
+                                
+                            topic_id = f"{dialog.id}_{topic.id}" # ID compuesto para identificar el tema
+                            dialog_list.append({
+                                "id": topic_id,
+                                "name": f"{dialog.name} > {topic.title}",
+                                "type": "Tema",
+                                "unread": 0,
+                                "is_monitored": topic_id in self.monitored_ids
+                            })
+                    except Exception as te:
+                        logger.warning(f"[Telegram] Error al obtener temas de {dialog.name}: {te}")
+            
+            # 3. COMPENSACIÓN: Intentar buscar chats configurados que NO se encontraron en los diálogos
+            found_names = set(self.id_to_name.values())
+            for target in self.target_chat_names:
+                if not target: continue
+                if target.strip() not in found_names:
+                    try:
+                        # Intento de búsqueda global razonable
+                        entity = await self.client.get_entity(target.strip())
+                        d_id = entity.id
+                        d_name = (getattr(entity, 'title', "") or getattr(entity, 'first_name', "") or target).strip()
+                        self.monitored_ids.add(d_id)
+                        self.id_to_name[d_id] = target.strip()
+                        logger.info(f"[Telegram] VINCULO FORZADO (Búsqueda Directa): '{d_name}' (ID: {d_id})")
+                    except Exception as ex:
+                        logger.debug(f"[Telegram] No se pudo encontrar '{target}' mediante búsqueda directa: {ex}")
+
+            logger.info(f"[Telegram] Escaneo completado. Se han detectado {len(dialog_list)} ítems.")
+            return dialog_list
+        except Exception as e:
+            logger.error(f"[Telegram] Error crítico al listar diálogos: {e}")
+            return []
+
+    async def refresh_monitored_chats(self, new_chat_list_str):
+        """
+        Actualiza la lista de chats monitoreados en 'caliente', incluyendo soporte para Temas.
+        """
+        self.target_chat_names = [c.strip() for c in new_chat_list_str.split(",") if c.strip()]
+        self.monitored_ids = {self.me_id} if hasattr(self, 'me_id') else set()
+        self.id_to_name = {self.me_id: "Mensajes Guardados (ME)"} if hasattr(self, 'me_id') else {}
+        
+        from telethon.tl.functions.channels import GetForumTopicsRequest
+        from telethon.tl.types import Channel
+
+        async for dialog in self.client.iter_dialogs(limit=None):
+            d_name = (dialog.name or "Sin Nombre").strip()
+            d_id = dialog.id
+            entity = dialog.entity
+            
+            # Fix para evitar NoneType error si el username es None
+            raw_username = getattr(entity, 'username', "") or ""
+            d_username = raw_username.lower() if entity else ""
+            
+            # Log de auditoría silencioso en consola
+            logger.info(f"[Telegram] Detectado: '{d_name}' (ID: {d_id}, @{d_username})")
+
+            # 1. Verificar si el diálogo principal coincide
+            for target in self.target_chat_names:
+                if not target: continue
+                clean_target = target.strip().lower()
+                clean_target_no_at = clean_target.replace("@", "")
+                
+                # Match por Nombre exacto, Nombre minúsculas, ID o Username
+                matches = (
+                    d_name.lower() == clean_target or
+                    str(d_id) == clean_target or
+                    d_username == clean_target or
+                    d_username == clean_target_no_at
+                )
+                
+                if matches:
+                    # Guardamos ambos formatos (string e int) para evitar problemas de tipo en el handler
+                    self.monitored_ids.add(d_id)
+                    self.monitored_ids.add(str(d_id))
+                    self.id_to_name[d_id] = target.strip()
+                    self.id_to_name[str(d_id)] = target.strip()
+                    logger.info(f"[Telegram] Vinculado con éxito: '{d_name}' (@{d_username})")
+            
+            # 2. Si es un Foro, buscar coincidencias en sus temas
+            if isinstance(entity, Channel) and getattr(entity, 'forum', False):
+                try:
+                    topics = await self.client(GetForumTopicsRequest(
+                        channel=entity, offset_date=None, offset_id=0, offset_topic=0, limit=50
+                    ))
+                    for topic in topics.topics:
+                        topic_name = f"{d_name} > {topic.title}"
+                        topic_id = f"{d_id}_{topic.id}"
+                        
+                        for target in self.target_chat_names:
+                            if topic_name.lower() == target.lower() or topic_id == target:
+                                self.monitored_ids.add(topic_id)
+                                self.id_to_name[topic_id] = target
+                except Exception as e:
+                    logger.debug(f"[Telegram] Silencio en topics de {d_name}: {e}")
+        
+        logger.info(f"[Telegram] Lista de monitoreo actualizada: {list(self.id_to_name.values())}")
+
+    async def get_discoverable_chats(self):
+        if not self.client or not self.client.is_connected(): return []
         discovery = []
         async for dialog in self.client.iter_dialogs(archived=True, limit=100):
             entity = dialog.entity
             chat_info = {
-                "id": dialog.id,
-                "name": dialog.name,
-                "type": type(entity).__name__,
-                "is_forum": getattr(entity, "forum", False),
-                "topics": []
+                "id": dialog.id, "name": dialog.name,
+                "type": type(entity).__name__, "is_forum": getattr(entity, "forum", False), "topics": []
             }
-            
             if chat_info["is_forum"]:
                 try:
                     res = await self.client(functions.channels.GetForumTopicsRequest(
                         channel=entity, offset_date=None, offset_id=0, offset_topic=0, limit=50
                     ))
                     for t in res.topics:
-                        if hasattr(t, "title"):
-                            chat_info["topics"].append({"id": t.id, "title": t.title})
+                        if hasattr(t, "title"): chat_info["topics"].append({"id": t.id, "title": t.title})
                 except: pass
-                
             discovery.append(chat_info)
-            
         return discovery

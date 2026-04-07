@@ -30,50 +30,50 @@ class TradeMonitor:
                 
                 # 2. Verificar cada trade
                 for trade in active_trades:
-                    market_data = self.exchange.get_market_price(trade["symbol"])
+                    market_data = await self.exchange.get_market_price(trade["symbol"])
                     current_price = market_data["price"]
-                    self.check_targets(trade, current_price)
+                    await self.check_targets(trade, current_price)
                 
             except Exception as e:
                 logger.error(f"[Monitor] Error en el ciclo: {e}")
             
             await asyncio.sleep(interval)
 
-    def check_targets(self, trade, current_price):
+    async def check_targets(self, trade, current_price):
         """
         Lógica para TP1 y Break-Even.
         """
         side = trade["side"].lower()
         if side == "long":
             if current_price >= trade["tp"] and not trade["tp1_hit"]:
-                self.handle_tp1(trade)
+                await self.handle_tp1(trade)
             elif current_price <= trade["sl"]:
-                self.handle_exit(trade, current_price, "Stop Loss")
+                await self.handle_exit(trade, current_price, "Stop Loss")
         
         elif side == "short":
             if current_price <= trade["tp"] and not trade["tp1_hit"]:
-                self.handle_tp1(trade)
+                await self.handle_tp1(trade)
             elif current_price >= trade["sl"]:
-                self.handle_exit(trade, current_price, "Stop Loss")
+                await self.handle_exit(trade, current_price, "Stop Loss")
 
-    def handle_tp1(self, trade):
+    async def handle_tp1(self, trade):
         """
         TP1 Alcanzado: Cerrar 50% y mover SL a Entrada.
         """
         logger.info(f"🎯 [Monitor] TP1 Alcanzado para {trade['symbol']} ({trade['tp']})")
         
         # 1. Cierre parcial en Bitget
-        self.exchange.close_position_partial(trade["symbol"], 0.5)
+        await self.exchange.close_position_partial(trade["symbol"], 0.5)
         
         # 2. Mover SL a Break-Even en Bitget
-        self.exchange.update_sl(trade["symbol"], trade["entry_price"])
+        await self.exchange.update_sl(trade["symbol"], trade["entry_price"])
         
         # 3. Actualizar estado en DB (usamos parámetros con nombre)
         self.db.update_trade_status(trade["id"], tp1_hit=True, sl_moved=True)
         
         logger.info(f"🛡️ [Monitor] {trade['symbol']}: Parcial cerrado y SL movido a Entrada ({trade['entry_price']})")
 
-    def handle_exit(self, trade, price, reason):
+    async def handle_exit(self, trade, price, reason):
         """
         Cierre total del trade.
         """

@@ -1,18 +1,26 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700;800&family=Outfit:wght@400;700;900&family=Inter:wght@400;500;700&display=swap');
 @import "tailwindcss";
 
 @theme {
-  --color-inverse-primary: #006d37;
-  --color-surface: #131313;
-  --color-primary-container: #00ff88;
-  --color-surface-container: #201f1f;
-  --color-on-tertiary-container: #713fda;
-  --color-secondary-container: #d4004b;
-  --color-background: #050505;
-  --color-on-surface: #e5e2e1;
+  /* Bitget Iconic Palette 2026 */
+  --color-primary-container: #1FDDC4;
+  --color-on-primary-container: #003831;
+  --color-inverse-primary: #008B7A;
   
+  --color-surface: #0B0E11;
+  --color-surface-container: #181C20;
+  --color-background: #050505;
+  --color-on-surface: #EAECEF;
+  --color-on-surface-variant: #848E9C;
+
+  /* Trading Colors */
+  --color-trading-up: #00C087;
+  --color-trading-down: #F6465D;
+
+  /* Typography */
   --font-outfit: "Outfit", sans-serif;
   --font-body: "Inter", sans-serif;
-  --font-mono: "Fira Code", monospace;
+  --font-mono: "JetBrains Mono", "Fira Code", monospace;
 }
 
 @layer base {
@@ -29,15 +37,25 @@
 
 @layer components {
   .glass-panel {
-    @apply border border-white/5 bg-white/5 backdrop-blur-xl transition-all duration-300;
+    @apply border border-white/5 bg-[#181C20]/40 backdrop-blur-2xl transition-all duration-300;
   }
 
-  .ai-glow {
-    box-shadow: 0 0 40px -15px rgba(113, 63, 218, 0.3);
+  .terminal-glow {
+    box-shadow: 0 0 30px -10px rgba(31, 221, 196, 0.25);
   }
 
-  .emerald-glow {
-    text-shadow: 0 0 20px rgba(0, 255, 136, 0.4);
+  .bitget-glow {
+    text-shadow: 0 0 15px rgba(31, 221, 196, 0.5);
+  }
+
+  .trading-up {
+    @apply text-trading-up;
+    text-shadow: 0 0 10px rgba(0, 192, 135, 0.3);
+  }
+
+  .trading-down {
+    @apply text-trading-down;
+    text-shadow: 0 0 10px rgba(246, 70, 93, 0.3);
   }
 
   .material-symbols-outlined {
@@ -55,4 +73,17 @@
 
 ::-webkit-scrollbar-thumb {
   @apply rounded-full bg-white/10 hover:bg-white/20;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+    width: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+    background: rgba(31, 221, 196, 0.2);
+    border-radius: 10px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: rgba(31, 221, 196, 0.4);
 }

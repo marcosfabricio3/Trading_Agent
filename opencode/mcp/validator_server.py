@@ -18,38 +18,47 @@ def validate_signal(parsed_signal: dict):
         if parsed_signal.get("side") not in ["long", "short"]:
             return {"valid": False, "reason": f"Invalid side: {parsed_signal.get('side')}"}
             
-        entry = parsed_signal.get("entry", 0)
-        tp = parsed_signal.get("tp", 0)
-        sl = parsed_signal.get("sl", 0)
+        # Cast to float to avoid TypeError with strings like "mercado" or numeric strings
+        try:
+            entry = float(parsed_signal.get("entry", 0))
+            tp = float(parsed_signal.get("tp", 0))
+            sl = float(parsed_signal.get("sl", 0))
+        except (ValueError, TypeError):
+            return {"valid": False, "reason": "Invalid numeric values in signal (entry/tp/sl)"}
         
-        if entry <= 0 or tp <= 0 or sl <= 0:
-            return {"valid": False, "reason": "Missing entry, TP, or SL price"}
+        # entry and sl are mandatory (sl can be added by engine)
+        if entry <= 0:
+            return {"valid": False, "reason": "Missing entry price"}
+        if sl <= 0:
+            return {"valid": False, "reason": "Missing Stop Loss (SL) price"}
             
-        # R:R Calculation
-        if parsed_signal["side"] == "long":
-            if sl >= entry: return {"valid": False, "reason": "SL must be below entry for LONG"}
-            if tp <= entry: return {"valid": False, "reason": "TP must be above entry for LONG"}
-            reward = tp - entry
-            risk = entry - sl
-        else: # short
-            if sl <= entry: return {"valid": False, "reason": "SL must be above entry for SHORT"}
-            if tp >= entry: return {"valid": False, "reason": "TP must be below entry for SHORT"}
-            reward = entry - tp
-            risk = sl - entry
-            
-        rr_ratio = reward / risk if risk > 0 else 0
-        if rr_ratio < 1.0:
-            return {"valid": False, "reason": f"Bad R:R ratio ({rr_ratio:.2f}). Minimum 1.0 required."}
+        # R:R Calculation (Only if TP is provided)
+        rr_ratio = 0
+        if tp > 0:
+            if parsed_signal["side"] == "long":
+                if sl >= entry: return {"valid": False, "reason": "SL must be below entry for LONG"}
+                if tp <= entry: return {"valid": False, "reason": "TP must be above entry for LONG"}
+                reward = tp - entry
+                risk = entry - sl
+            else: # short
+                if sl <= entry: return {"valid": False, "reason": "SL must be above entry for SHORT"}
+                if tp >= entry: return {"valid": False, "reason": "TP must be below entry for SHORT"}
+                reward = entry - tp
+                risk = sl - entry
+                
+            rr_ratio = reward / risk if risk > 0 else 0
+            if rr_ratio < 1.0:
+                return {"valid": False, "reason": f"Bad R:R ratio ({rr_ratio:.2f}). Minimum 1.0 required."}
             
         return {
             "valid": True,
-            "rr_ratio": round(rr_ratio, 2),
+            "rr_ratio": round(rr_ratio, 2) if tp > 0 else "N/A",
             "side": parsed_signal["side"],
-            "message": "Signal validated successfully"
+            "message": "Signal validated successfully" + (" (No TP)" if tp <= 0 else "")
         }
 
     except Exception as e:
-        return {"valid": False, "reason": f"Validation error: {str(e)}"}
+        return {"valid": False, "reason": f"Unexpected validation error: {str(e)}"}
 
 @mcp.tool()
 def check_market_distance(entry_price: float, market_price: float, max_distance_pct: float = 1.0):
