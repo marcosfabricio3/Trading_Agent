@@ -29,7 +29,7 @@ Responde ÚNICAMENTE en JSON:
 {
   "category": "CATEGORIA",
   "reason": "breve explicación",
-  "data": { "symbol": "BTCUSDT", "side": "long/short", "entry": 123.4, "tp": 130, "sl": 110, "percent": 50 }
+  "data": { "symbol": "BTCUSDT", "side": "long/short", "entry": 123.4, "tp": 130, "sl": 110, "leverage": 5, "percent": 50 }
 }
 """
 
@@ -46,9 +46,6 @@ async def parse_signal(text: str):
         
         log_event("AI_THOUGHT", f"IA interpretó como {data.get('category')}: {data.get('reason')}", {"category": data.get('category')})
         return data
-    except Exception as e:
-        return {"category": "ERROR", "reason": str(e)}
-
     except Exception as e:
         return {"category": "ERROR", "reason": str(e)}
 

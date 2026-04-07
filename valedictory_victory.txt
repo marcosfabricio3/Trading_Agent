@@ -1,0 +1,29 @@
+[Bitget] Usando modo predeterminado: one_way_mode
+============================================================
+  TEST SILVER BULLET (RAW): BUSCANDO ERROR 22002
+============================================================
+
+1. Abriendo posicion...
+[Bitget][OPEN] XRP/USDT:USDT CCXT_Side=buy Params={'tradeSide': 'open'}
+2. Poniendo SL...
+[Bitget][SL] XRP/USDT:USDT CCXT_Side=buy Params={'stopLossPrice': 1.1, 'reduceOnly': True, 'tradeSide': 'close'}
+
+3. Intentando cierre directo (v?a Herramienta MCP)...
+[Bitget][FULL_CLOSE] XRP/USDT:USDT CCXT_Side=sell Params={'reduceOnly': True, 'tradeSide': 'close'}
+[Bitget][Debug] Error capturado: bitget {"code":"22002","msg":"no position to close","requesttime":1775571565717,"data":null}
+[Bitget][FULL_CLOSE] !!! Margen bloqueado detectado. Iniciando protocolo de desbloqueo...
+[Bitget][Protocol] Cancelando ?rdenes de plan para XRP...
+[Bitget][Protocol] Intentando cancel_all_orders(plan=True)...
+[Bitget][Protocol] Probando m?todo din?mico: privateMixPostMixV1PlanCancelAllPlan
+[Bitget][Protocol] Probando m?todo din?mico: privateMixPostMixV1PlanCancelPlan
+[Bitget][Protocol] Probando m?todo din?mico: privateMixPostMixV1PlanCancelSymbolPlan
+[Bitget][Protocol] Probando m?todo din?mico: privateMixPostMixV1PlanCancelallplan
+[Bitget][Protocol] Probando m?todo din?mico: privateMixPostMixV1PlanCancelplan
+[Bitget][Protocol] Probando m?todo din?mico: privateMixPostMixV1PlanCancelsymbolplan
+[Bitget][Protocol] Probando m?todo din?mico: privateMixPostV2MixOrderCancelPlanOrder
+[Bitget][Protocol] EXITO con privateMixPostV2MixOrderCancelPlanOrder
+[Bitget][FULL_CLOSE] Reintentando con size real tras desbloqueo: 160.0
+[Bitget][FULL_CLOSE] Fall? reintento tras desbloqueo: bitget {"code":"22002","msg":"No position to close","requestTime":1775571571797,"data":null}
+[Bitget][FULL_CLOSE] FALLBACK (Error bitget {"code":"22002","msg":"No position to close","requestTime":1775571565717,"data":null}). Probando hedge_mode...
+
+Resultado MCP: {'status': 'error', 'message': 'Fallo en ambos modos: bitget {"code":"40774","msg":"The order type for unilateral position must also be the unilateral position type.","requestTime":1775571572130,"data":null}'}

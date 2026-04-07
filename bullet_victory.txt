@@ -1,0 +1,68 @@
+[Bitget] Usando modo predeterminado: one_way_mode
+============================================================
+  TEST SILVER BULLET (RAW): BUSCANDO ERROR 22002
+============================================================
+
+1. Abriendo posicion...
+[Bitget][OPEN] XRP/USDT:USDT CCXT_Side=buy Params={'tradeSide': 'open'}
+2. Poniendo SL...
+[Bitget][SL] XRP/USDT:USDT CCXT_Side=buy Params={'stopLossPrice': 1.1, 'reduceOnly': True, 'tradeSide': 'close'}
+
+3. Intentando cierre directo (v?a Herramienta MCP)...
+[Bitget][FULL_CLOSE] XRP/USDT:USDT CCXT_Side=sell Params={'reduceOnly': True, 'tradeSide': 'close'}
+[Bitget][Debug] Error capturado: bitget {"code":"22002","msg":"no position to close","requesttime":1775570861365,"data":null}
+[Bitget][FULL_CLOSE] !!! Margen bloqueado detectado. Iniciando protocolo de desbloqueo...
+[Bitget][Protocol] Cancelando ?rdenes de plan para XRP...
+[Bitget][Protocol] Solicitando cancelaci?n V2 v?a fetch2 (mix)...
+[Bitget][Protocol] Fall? fetch2 V2: 'i'. Probando V1...
+[Bitget][Protocol] Fallaron todos los intentos de cancelaci?n. Error: 'i'
+[Bitget][Protocol] Traceback:
+Traceback (most recent call last):
+  File "C:\Users\MarcosNotebooks\sources\repos\personal\Trading_Agent\opencode\mcp\bitget_server.py", line 64, in cancel_plan_orders
+    res = await asyncio.to_thread(
+          ^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<8 lines>...
+    )
+    ^
+  File "C:\Python314\Lib\asyncio\threads.py", line 25, in to_thread
+    return await loop.run_in_executor(None, func_call)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\concurrent\futures\thread.py", line 86, in run
+    result = ctx.run(self.task)
+  File "C:\Python314\Lib\concurrent\futures\thread.py", line 73, in run
+    return fn(*args, **kwargs)
+  File "C:\Users\MarcosNotebooks\AppData\Roaming\Python\Python314\site-packages\ccxt\base\exchange.py", line 4058, in fetch2
+    request = self.sign(path, api, method, params, headers, body)
+  File "C:\Users\MarcosNotebooks\AppData\Roaming\Python\Python314\site-packages\ccxt\bitget.py", line 8326, in sign
+    url = self.implode_hostname(self.urls['api'][endpoint]) + payload
+                                ~~~~~~~~~~~~~~~~^^^^^^^^^^
+KeyError: 'i'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\MarcosNotebooks\sources\repos\personal\Trading_Agent\opencode\mcp\bitget_server.py", line 79, in cancel_plan_orders
+    res = await asyncio.to_thread(
+          ^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<9 lines>...
+    )
+    ^
+  File "C:\Python314\Lib\asyncio\threads.py", line 25, in to_thread
+    return await loop.run_in_executor(None, func_call)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\concurrent\futures\thread.py", line 86, in run
+    result = ctx.run(self.task)
+  File "C:\Python314\Lib\concurrent\futures\thread.py", line 73, in run
+    return fn(*args, **kwargs)
+  File "C:\Users\MarcosNotebooks\AppData\Roaming\Python\Python314\site-packages\ccxt\base\exchange.py", line 4058, in fetch2
+    request = self.sign(path, api, method, params, headers, body)
+  File "C:\Users\MarcosNotebooks\AppData\Roaming\Python\Python314\site-packages\ccxt\bitget.py", line 8326, in sign
+    url = self.implode_hostname(self.urls['api'][endpoint]) + payload
+                                ~~~~~~~~~~~~~~~~^^^^^^^^^^
+KeyError: 'i'
+
+[Bitget][FULL_CLOSE] Reintentando con size real tras desbloqueo: 20.0
+[Bitget][FULL_CLOSE] Fall? reintento tras desbloqueo: bitget {"code":"22002","msg":"No position to close","requestTime":1775570865022,"data":null}
+[Bitget][FULL_CLOSE] FALLBACK (Error bitget {"code":"22002","msg":"No position to close","requestTime":1775570861365,"data":null}). Probando hedge_mode...
+
+Resultado MCP: {'status': 'error', 'message': 'Fallo en ambos modos: bitget {"code":"40774","msg":"The order type for unilateral position must also be the unilateral position type.","requestTime":1775570865343,"data":null}'}

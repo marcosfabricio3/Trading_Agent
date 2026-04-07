@@ -14,15 +14,16 @@ class DBService:
         entry = kwargs.get("entry", 0.0)
         tp = kwargs.get("tp", 0.0)
         sl = kwargs.get("sl", 0.0)
+        leverage = kwargs.get("leverage")
         # Soportamos tanto 'risk' como 'risk_pct'
         risk = kwargs.get("risk", kwargs.get("risk_pct", 0.0))
         source = kwargs.get("source", "Global")
         
-        return save_signal(raw_text, symbol, side, entry, tp, sl, risk, source)
+        return save_signal(raw_text, symbol, side, entry, tp, sl, risk, leverage, source)
 
-    def save_trade(self, signal_id, symbol, side, entry, margin):
+    def save_trade(self, signal_id, symbol, side, entry, margin, leverage=10):
         """Guarda un nuevo trade en la base de datos."""
-        return save_trade(signal_id, symbol, side, entry, margin)
+        return save_trade(signal_id, symbol, side, entry, margin, leverage)
 
     def log_event(self, event_type, message, details=None, source="Global"):
         return log_event(event_type, message, details, source)
@@ -40,3 +41,8 @@ class DBService:
     def update_setting(self, name, value):
         """Actualiza una regla de trading."""
         return update_setting(name, value)
+
+    def update_trade_parameters(self, trade_id, sl=None, tp=None):
+        """Actualiza los parámetros SL/TP de un trade."""
+        from opencode.mcp.db_server import update_trade_parameters
+        return update_trade_parameters(trade_id, sl=sl, tp=tp)

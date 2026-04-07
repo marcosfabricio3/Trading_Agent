@@ -1,0 +1,15 @@
+[Bitget] Sincronizando modo real de la cuenta...
+[Bitget] Usando modo predeterminado: one_way_mode
+
+==================================================
+  INICIANDO DIAGNOSTICO DE SINCRONIZACION BITGET
+==================================================
+
+[1/4] Verificando conexion...
+OK: Balance: 354.277679 USDT
+OK: Precio: 1.3114
+
+ACCION: Abriendo LONG de prueba (5.0 XRP)...
+[Bitget][OPEN] XRP/USDT:USDT CCXT_Side=buy Params={}
+[Bitget][OPEN] FALLBACK (Error bitget {"code":"40774","msg":"The order type for unilateral position must also be the unilateral position type.","requestTime":1775567384152,"data":null}). Reintentando en hedge_mode...
+ERROR open: Fallo en ambos modos: bitget {"code":"40774","msg":"The order type for unilateral position must also be the unilateral position type.","requestTime":1775567384452,"data":null}

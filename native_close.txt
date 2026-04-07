@@ -1,0 +1,11 @@
+[Bitget] Usando modo predeterminado: one_way_mode
+============================================================
+  TEST NATIVO CCXT: close_all_positions()
+============================================================
+
+1. Abriendo posicion...
+[Bitget][OPEN] XRP/USDT:USDT CCXT_Side=buy Params={'tradeSide': 'open'}
+2. Poniendo SL (Bloqueo de Margen)...
+[Bitget][SL] XRP/USDT:USDT CCXT_Side=buy Params={'stopLossPrice': 1.1, 'reduceOnly': True, 'tradeSide': 'close'}
+
+3. Intentando close_all_positions(symbols=[symbol])...

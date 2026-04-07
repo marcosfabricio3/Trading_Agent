@@ -149,6 +149,29 @@ async def close_trade(trade_id: int):
         logger.error(f"API Error (close_trade): {e}")
         return {"status": "error", "message": str(e)}
 
+@app.post("/api/trades/{trade_id}/params")
+async def update_trade_params(trade_id: int, data: dict):
+    """
+    Modificación manual de SL y TP desde el Dashboard.
+    """
+    try:
+        engine = getattr(app.state, "engine", None)
+        if not engine:
+            return {"status": "error", "message": "Trading Engine no inyectado en API."}
+        
+        sl = data.get("sl")
+        tp = data.get("tp")
+        
+        if sl is not None: sl = float(sl)
+        if tp is not None: tp = float(tp)
+        
+        result = await engine.update_trade_params(trade_id, sl=sl, tp=tp)
+        return result
+    except Exception as e:
+        logger.error(f"API Error (update_trade_params): {e}")
+        return {"status": "error", "message": str(e)}
+
+
 @app.get("/api/balance")
 async def get_balance():
     """

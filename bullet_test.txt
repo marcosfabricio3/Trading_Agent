@@ -1,0 +1,10 @@
+1.3044
+[Bitget] Usando modo predeterminado: one_way_mode
+============================================================
+  TEST SILVER BULLET: PROTOCOLO DE DESBLOQUEO
+============================================================
+
+1. Abriendo posicion...
+[Bitget][OPEN] XRP/USDT:USDT CCXT_Side=buy Params={'tradeSide': 'open'}
+2. Poniendo SL (Bloqueando Margen)...
+[Bitget][SL] XRP/USDT:USDT CCXT_Side=buy Params={'stopLossPrice': 1.1, 'reduceOnly': True, 'tradeSide': 'close'}

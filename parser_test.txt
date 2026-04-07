@@ -1,0 +1,4 @@
+=== TEST DE EXTRACCION DE APALANCAMIENTO ===
+
+Analizando: 'LONG XRP entry 1.30 tp 1.40 sl 1.25 x5'
+Resultado: Category=NEW_SIGNAL Leverage=5

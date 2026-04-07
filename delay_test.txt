@@ -1,0 +1,6 @@
+================================================================================
+  TEST DEFINITIVO: ?EL DELAY TRAS CANCELAR ES LA CLAVE?
+================================================================================
+
+1. Abriendo posicion y bloqueando con SL...
+Error preparacion: 'charmap' codec can't encode character '\u2705' in position 0: character maps to <undefined>

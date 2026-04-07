@@ -1,0 +1,11 @@
+================================================================================
+  DEBUG COMPLETO: POSICION REAL Y LIQUIDACION V2
+================================================================================
+
+1. Abriendo posicion LONG...
+
+2. Estado detallado de la posicion:
+Side: long, Size: 65.0, Notional: 84.929
+Bitget RAW Info: available=65, positionId=None, marginMode=crossed
+
+3. Intentando cerrado con tradeSide='close' Y EL SIZE EXACTO DETECTADO...

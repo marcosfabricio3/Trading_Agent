@@ -1,6 +1,6 @@
 from opencode.mcp.bitget_server import (
     create_order, set_sl_tp, get_balance, get_position, 
-    get_market_price as core_market_price, close_position_partial, update_sl,
+    get_market_price as core_market_price, close_position_partial, update_sl, update_tp,
     close_position_full as core_close_full, set_leverage, get_market_info
 )
 
@@ -10,6 +10,8 @@ class ExchangeService:
     """
     async def create_order(self, symbol, side, order_type, qty, price):
         return await create_order(symbol, side, order_type, qty, price)
+
+
 
     async def set_leverage(self, symbol, leverage):
         return await set_leverage(symbol, leverage)
@@ -38,3 +40,7 @@ class ExchangeService:
 
     async def update_sl(self, symbol, new_sl):
         return await update_sl(symbol, new_sl)
+
+    async def update_tp(self, symbol, new_tp):
+        return await update_tp(symbol, new_tp)
+

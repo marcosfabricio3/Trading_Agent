@@ -1,0 +1,6 @@
+
+======================================================================
+  TEST DE LIQUIDACION DEFINITIVA: CANCELAR PLANES + CIERRE
+======================================================================
+
+1. Abriendo posicion y estableciendo SL/TP (Escenario de Bloqueo)...

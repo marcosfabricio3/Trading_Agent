@@ -1,0 +1,17 @@
+
+==================================================
+  INVESTIGACION DINAMICA DE PARAMETROS BITGET
+==================================================
+
+1. Abriendo posicion LONG (Unilateral)...
+OK: Apertura exitosa: 1425398185445703681
+Mark Price: 1.3119, Intento SL: 1.2463
+
+Probando: Action Only (Sell + ReduceOnly)...
+Fallo Action Only (Sell + ReduceOnly): bitget {"code":"45122","msg":"Short position stop loss price please > mark price 1.3119","requestTime":1775567334395,"data":null}
+
+Probando: No Sides (Buy + Trigger)...
+EXITO con No Sides (Buy + Trigger)! ID: 1425398202399973376
+
+Liquidando posicion...
+ERROR liquidacion: bitget {"code":"22002","msg":"No position to close","requestTime":1775567335396,"data":null}

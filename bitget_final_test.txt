@@ -1,0 +1,29 @@
+[Bitget] Usando modo predeterminado: one_way_mode
+
+==================================================
+  INICIANDO DIAGNOSTICO DE SINCRONIZACION BITGET
+==================================================
+
+[1/4] Verificando conexion...
+OK: Balance: 354.73865692 USDT
+OK: Precio: 1.3056
+
+ACCION: Abriendo LONG de prueba (5.0 XRP)...
+[Bitget][OPEN] XRP/USDT:USDT CCXT_Side=buy Params={'tradeSide': 'open'}
+OK: Orden abierta (DIRECTO).
+
+ACCION: Sincronizando SL (1.2534) y TP (1.3578)...
+[Bitget][SL] XRP/USDT:USDT CCXT_Side=buy Params={'stopLossPrice': 1.2534, 'reduceOnly': True, 'tradeSide': 'close'}
+[Bitget][TP] XRP/USDT:USDT CCXT_Side=buy Params={'takeProfitPrice': 1.3578, 'reduceOnly': True, 'tradeSide': 'close'}
+RESULTADO: SL=success, TP=success
+
+LIMPIEZA: Liquidando posicion...
+[Bitget][FULL_CLOSE] XRP/USDT:USDT CCXT_Side=sell Params={'reduceOnly': True, 'tradeSide': 'close'}
+[Bitget][FULL_CLOSE] Reintentando cierre con detecci?n de posici?n fresca...
+[Bitget][FULL_CLOSE] FALLBACK (Error bitget {"code":"22002","msg":"No position to close","requestTime":1775568470585,"data":null}). Probando hedge_mode...
+OK: Cierre finalizado (error)
+
+==================================================
+  DIAGNOSTICO FINALIZADO
+==================================================
+

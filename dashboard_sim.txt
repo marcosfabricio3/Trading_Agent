@@ -1,0 +1,5 @@
+[Bitget] Usando modo predeterminado: one_way_mode
+
+================================================================================
+  SIMULACION DE DASHBOARD: PRUEBA DE LIQUIDACION ROBUSTA
+================================================================================

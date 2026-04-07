@@ -1,0 +1,40 @@
+[Bitget] Cargando mercados...
+[Bitget] Sincronizando modo de posici?n real...
+[Bitget] Fallo en detecci?n din?mica (Detalle: 'r')
+[Bitget] Usando modo por defecto: one_way_mode
+
+==================================================
+  INICIANDO DIAGNOSTICO DE SINCRONIZACION BITGET
+==================================================
+
+[1/4] Verificando conexion...
+OK: Balance: 354.6948676 USDT
+OK: Precio: 1.3116
+
+ACCION: Abriendo LONG de prueba (5.0 XRP)...
+[Bitget][OPEN] XRP/USDT:USDT CCXT_Side=buy Params={'tradeSide': 'open'}
+OK: Orden abierta (DIRECTO).
+
+ACCION: Sincronizando SL (1.2591) y TP (1.3641)...
+[Bitget] Configurando Stop Loss: 1.2591
+[Bitget][SL] XRP/USDT:USDT CCXT_Side=sell Params={'stopLossPrice': 1.2591, 'reduceOnly': True, 'tradeSide': 'close'}
+[Bitget][SL] FALLBACK ACTIVADO (Error: bitget {"code":"45122","msg":"Short position stop loss price please > mark price 1.3123","requestTime":1775567253168,"data":null}). Reintentando en hedge_mode...
+[Bitget][SL] FALLO TOTAL: bitget {"code":"45122","msg":"Short position stop loss price please > mark price 1.3123","requestTime":1775567253468,"data":null}
+[Bitget] Configurando Take Profit: 1.3641
+[Bitget][TP] XRP/USDT:USDT CCXT_Side=sell Params={'takeProfitPrice': 1.3641, 'reduceOnly': True, 'tradeSide': 'close'}
+[Bitget][TP] FALLBACK ACTIVADO (Error: bitget {"code":"45135","msg":"The take-profit price for short positions must be less than the mark price: 1.3122.","requestTime":1775567254287,"data":null}). Reintentando en hedge_mode...
+[Bitget][TP] FALLO TOTAL: bitget {"code":"45135","msg":"The take-profit price for short positions must be less than the mark price: 1.3122.","requestTime":1775567254578,"data":null}
+RESULTADO: SL=error, TP=error
+  Error SL: Error en ambos modos: bitget {"code":"45122","msg":"Short position stop loss price please > mark price 1.3123","requestTime":1775567253468,"data":null}
+  Error TP: Error en ambos modos: bitget {"code":"45135","msg":"The take-profit price for short positions must be less than the mark price: 1.3122.","requestTime":1775567254578,"data":null}
+
+LIMPIEZA: Liquidando posicion...
+[Bitget][FULL_CLOSE] XRP/USDT:USDT CCXT_Side=sell Params={'reduceOnly': True, 'tradeSide': 'close'}
+[Bitget][FULL_CLOSE] FALLBACK ACTIVADO (Error: bitget {"code":"22002","msg":"No position to close","requestTime":1775567255152,"data":null}). Reintentando en hedge_mode...
+[Bitget][FULL_CLOSE] FALLO TOTAL: bitget {"code":"40774","msg":"The order type for unilateral position must also be the unilateral position type.","requestTime":1775567255444,"data":null}
+OK: Cierre finalizado (error)
+
+==================================================
+  DIAGNOSTICO FINALIZADO
+==================================================
+

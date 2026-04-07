@@ -1,4 +1,6 @@
+import asyncio
 from app.logger import logger
+
 
 class TradingEngine:
     """
@@ -107,20 +109,39 @@ class TradingEngine:
                 entry = float(entry)
                 parsed["entry"] = entry
 
-            # SL por defecto (2%) si no existe
+            def parse_relative_price(val, base_price, side, is_sl=True):
+                """Calcula el precio final si el valor es un porcentaje (ej: 2% o 2% loss)"""
+                import re
+                val_str = str(val).strip().lower()
+                # Buscar un número seguido de % (ej: 2%, 2.5%, 2 % )
+                match = re.search(r"(\d+(\.\d+)?)(\s*)%", val_str)
+                if match:
+                    pct = float(match.group(1)) / 100
+                    if side == "long":
+                        return base_price * (1 - pct) if is_sl else base_price * (1 + pct)
+                    else: # short
+                        return base_price * (1 + pct) if is_sl else base_price * (1 - pct)
+                
+                # Si no es porcentaje, intentar casting directo
+                try:
+                    return float(val)
+                except:
+                    return 0.0
+
+            # SL handling
             sl = parsed.get("sl", 0)
             if not sl or str(sl).lower() in ["0", "0.0"] or sl == 0:
-                if side == "long":
-                    sl = entry * 0.98 # 2% abajo
-                else:
-                    sl = entry * 1.02 # 2% arriba
-                parsed["sl"] = float(sl)
+                # Default 2%
+                sl_price = entry * 0.98 if side == "long" else entry * 1.02
+                parsed["sl"] = float(sl_price)
                 logger.info(f"  [Engine] SL no detectado. Aplicando SL automático (2%): {parsed['sl']}")
+            else:
+                parsed["sl"] = parse_relative_price(sl, entry, side, is_sl=True)
 
-            # TP opcional (solo casting)
+            # TP handling
             tp = parsed.get("tp", 0)
-            if tp:
-                parsed["tp"] = float(tp)
+            if tp and str(tp).lower() not in ["0", "0.0"]:
+                parsed["tp"] = parse_relative_price(tp, entry, side, is_sl=False)
             else:
                 parsed["tp"] = 0.0
 
@@ -128,6 +149,7 @@ class TradingEngine:
             thought = f"⚠️ Error procesando precios: {str(e)}"
             logger.error(f"  [Error] {thought}")
             return thought
+
 
         # 3. Validación
         validation = self.validator.validate_signal(parsed)
@@ -164,6 +186,7 @@ class TradingEngine:
             
         pos_size = risk_res["position_size"]
         leverage = min(parsed.get("leverage", int(settings.get("max_leverage", 10))), int(settings.get("max_leverage", 10)))
+        parsed["leverage"] = leverage
         
         # 4.1 Establecer Apalancamiento antes de la orden
         try:
@@ -194,10 +217,22 @@ class TradingEngine:
         )
         
         if order["status"] == "success":
-            await self.exchange.set_sl_tp(parsed["symbol"], parsed["sl"], parsed["tp"])
+            # Establecer SL/TP en llamadas separadas para evitar Error 43023
+            # Aumentamos el margen a 1.5s para asegurar que Bitget procese la operación market
+            logger.info(f"  [Engine] Orden market exitosa. Esperando 1.5s para sincronizar SL/TP...")
+            await asyncio.sleep(1.5)
+            sl_tp_res = await self.exchange.set_sl_tp(parsed["symbol"], parsed["sl"], parsed["tp"])
+            
+            if sl_tp_res.get("status") == "success":
+                logger.info(f"  [Engine] ✅ SL/TP establecidos correctamente: SL={parsed['sl']}, TP={parsed['tp']}")
+            else:
+                logger.warning(f"  [Engine] ⚠️ No se pudieron establecer SL/TP automáticamente: {sl_tp_res.get('message')}")
+            
             sid = self.db.save_signal(raw_text, source=source, **parsed)["id"]
+
+
             # Guardamos el margen REAL utilizado (estimado)
-            self.db.save_trade(sid, parsed["symbol"], parsed["side"], parsed["entry"], margin=actual_margin)
+            self.db.save_trade(sid, parsed["symbol"], parsed["side"], parsed["entry"], margin=actual_margin, leverage=leverage)
             thought = f"✅ Trade abierto: {symbol} {side.upper()} @ {parsed['entry']} (Size: {actual_margin:.2f} USDT, Lev: {leverage}x)"
             self.db.log_event("AI_THOUGHT", f"¡Éxito! {thought}", source=source)
             return thought
@@ -262,7 +297,35 @@ class TradingEngine:
         
         return {"status": "success", "symbol": symbol}
 
+    async def update_trade_params(self, trade_id: int, sl: float = None, tp: float = None):
+        """Modifica SL/TP de un trade activo desde el Dashboard."""
+        active = self.db.get_active_trades()
+        target = next((t for t in active if t["id"] == trade_id), None)
+        
+        if not target:
+            return {"status": "error", "message": "Trade no encontrado."}
+            
+        symbol = target["symbol"]
+        
+        # 1. Exchange
+        try:
+            # Bitget suele requerir ambos si quieres asegurar la posición, 
+            # pero el MCP set_sl_tp maneja el envío al exchange.
+            await self.exchange.set_sl_tp(symbol, sl or target.get('sl'), tp or target.get('tp'))
+        except Exception as e:
+            logger.error(f"Error actualizando SL/TP en Exchange: {e}")
+            return {"status": "error", "message": f"Error Exchange: {str(e)}"}
+            
+        # 2. DB
+        self.db.update_trade_parameters(trade_id, sl=sl, tp=tp)
+        
+        logger.info(f"  [Gestión][Dashboard] SL/TP actualizados para {symbol}: SL={sl}, TP={tp}")
+        self.db.log_event("ENGINE", f"Parámetros SL/TP actualizados desde Dashboard para {symbol}.", {"sl": sl, "tp": tp})
+        
+        return {"status": "success"}
+
     async def _execute_close(self, symbol):
+
         """Helper para liquidar y limpiar DB."""
         logger.info(f"  [Gestión] Liquidando posición de {symbol}...")
         self.db.log_event("AI_THOUGHT", f"Cerrando {symbol} en Exchange y DB.")

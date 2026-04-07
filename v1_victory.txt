@@ -1,0 +1,11 @@
+[Bitget] Usando modo predeterminado: one_way_mode
+============================================================
+  TEST FINAL: V1 Cancel -> V2 Close
+============================================================
+
+1. Abriendo posicion (V2)...
+[Bitget][OPEN] XRP/USDT:USDT CCXT_Side=buy Params={'tradeSide': 'open'}
+2. Poniendo SL (Bloqueo V2)...
+[Bitget][SL] XRP/USDT:USDT CCXT_Side=buy Params={'stopLossPrice': 1.1, 'reduceOnly': True, 'tradeSide': 'close'}
+
+3. Cancelando planes con V1: privateMixPostMixV1PlanCancelAllPlanOrder...

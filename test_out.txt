@@ -1,0 +1,6 @@
+﻿[Bitget] Cargando mercados...
+[Bitget] Sincronizando modo de posici¾n real...
+[Bitget] Fallo en detecci¾n dinßmica (Detalle: 'r')
+[Bitget] Usando modo por defecto: one_way_mode
+
+==================================================

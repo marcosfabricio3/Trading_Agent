@@ -18,13 +18,22 @@ def validate_signal(parsed_signal: dict):
         if parsed_signal.get("side") not in ["long", "short"]:
             return {"valid": False, "reason": f"Invalid side: {parsed_signal.get('side')}"}
             
-        # Cast to float to avoid TypeError with strings like "mercado" or numeric strings
+        # Robust numeric casting
+        def to_float(val, name):
+            if val is None: return 0.0
+            s_val = str(val).replace('%', '').strip()
+            try:
+                return float(s_val)
+            except (ValueError, TypeError):
+                raise ValueError(f"Invalid numeric value for {name}: '{val}'")
+
         try:
-            entry = float(parsed_signal.get("entry", 0))
-            tp = float(parsed_signal.get("tp", 0))
-            sl = float(parsed_signal.get("sl", 0))
-        except (ValueError, TypeError):
-            return {"valid": False, "reason": "Invalid numeric values in signal (entry/tp/sl)"}
+            entry = to_float(parsed_signal.get("entry", 0), "entry")
+            tp = to_float(parsed_signal.get("tp", 0), "tp")
+            sl = to_float(parsed_signal.get("sl", 0), "sl")
+        except ValueError as e:
+            return {"valid": False, "reason": str(e)}
+
         
         # entry and sl are mandatory (sl can be added by engine)
         if entry <= 0:

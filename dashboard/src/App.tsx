@@ -456,11 +456,21 @@ const MiniStat = ({ label, value }: { label: string, value: string }) => (
 
 
 
-const TradeCard = ({ id, symbol, side, entry_price, margin, tp, sl, source, leverage = "10x", pnl_pct = "+0.00%", showSource = false, onTradeClosed }: any) => {
+const TradeCard = ({ id, symbol, side, entry_price, margin, tp, sl, source, leverage, pnl_pct = "+0.00%", showSource = false, onTradeClosed }: any) => {
+    // Si leverage viene como número (ej: 5), añadimos la 'x'. Si ya tiene string (ej: '10x'), lo dejamos.
+    const displayLeverage = leverage ? (String(leverage).includes('x') ? leverage : `${leverage}x`) : "10x";
     const isLong = side?.toLowerCase() === 'long';
+    const [localTp, setLocalTp] = useState(tp);
+    const [localSl, setLocalSl] = useState(sl);
+    const [isSaving, setIsSaving] = useState(false);
+
+    useEffect(() => {
+        setLocalTp(tp);
+        setLocalSl(sl);
+    }, [tp, sl]);
 
     const handleClose = async () => {
-        if (window.confirm(`¿Estás seguro de que deseas CERRAR la posición de ${symbol} inmediatamente?`)) {
+        if (window.confirm(`⚠️ ADVERTENCIA: ¿Estás seguro de que deseas LIQUIDAR la posición de ${symbol} inmediatamente a mercado?`)) {
             try {
                 const res = await fetch(`http://localhost:8000/api/trades/${id}/close`, { method: 'POST' });
                 const data = await res.json();
@@ -475,55 +485,131 @@ const TradeCard = ({ id, symbol, side, entry_price, margin, tp, sl, source, leve
         }
     };
 
+    const handleUpdateParams = async () => {
+        if (isSaving) return;
+        setIsSaving(true);
+        try {
+            const res = await fetch(`http://localhost:8000/api/trades/${id}/params`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ tp: localTp, sl: localSl })
+            });
+            const data = await res.json();
+            if (data.status === 'success') {
+                alert('✅ Parámetros sincronizados con el Exchange.');
+            } else {
+                alert('❌ Error: ' + data.message);
+            }
+        } catch (err) {
+            alert('❌ Error de conexión.');
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
     return (
-        <div className="glass-panel group rounded-sm p-5 border-white/5 bg-[#0B0E11]/40 transition-all hover:border-[#1FDDC4]/30 terminal-glow relative overflow-hidden">
+        <div className="glass-panel group rounded-sm p-6 border-white/5 bg-[#0B0E11]/60 transition-all hover:border-[#1FDDC4]/40 terminal-glow relative overflow-hidden backdrop-blur-xl">
             {showSource && (
-                <div className="absolute top-0 right-0 px-2 py-1 bg-[#1FDDC4]/10 text-[#1FDDC4] text-[7px] font-mono font-bold uppercase tracking-tighter opacity-50">
-                    SRC_{source || "DIRECT"}
+                <div className="absolute top-0 right-0 px-3 py-1 bg-[#1FDDC4]/10 text-[#1FDDC4] text-[8px] font-mono font-black uppercase tracking-widest opacity-40">
+                    {source || "MANUAL"}
                 </div>
             )}
-            <div className="mb-6 flex justify-between items-start">
-                <div className="space-y-1">
-                    <div className="font-mono text-xl font-black tracking-tight flex items-center gap-2">
+            
+            <div className="mb-8 flex justify-between items-start">
+                <div className="space-y-2">
+                    <div className="font-mono text-2xl font-black tracking-tighter flex items-center gap-2 text-white">
                         {symbol}
-                        <span className="text-[10px] opacity-40 font-normal">{leverage}</span>
+                        <span className="text-[10px] bg-white/5 px-2 py-0.5 rounded-none font-bold text-[#848E9C]">{displayLeverage}</span>
                     </div>
-                    <span className={`inline-block px-2 py-0.5 text-[9px] font-bold rounded-sm uppercase tracking-wider ${isLong ? 'bg-[#00C087]/10 text-[#00C087] border border-[#00C087]/20' : 'bg-[#F6465D]/10 text-[#F6465D] border border-[#F6465D]/20'}`}>{side}</span>
+                    <div className="flex gap-2">
+                        <span className={`px-2 py-0.5 text-[10px] font-black rounded-none uppercase tracking-widest ${isLong ? 'bg-[#00C087]/20 text-[#00C087]' : 'bg-[#F6465D]/20 text-[#F6465D]'}`}>
+                            {side}
+                        </span>
+                    </div>
                 </div>
                 <div className="text-right">
-                    <div className={`font-mono text-2xl font-black ${isLong ? 'trading-up' : 'trading-down'}`}>{pnl_pct}</div>
-                    <div className="text-[8px] text-[#848E9C] font-mono uppercase">REALTIME_PNL</div>
+                    <div className={`font-mono text-3xl font-black tracking-tight ${isLong ? 'text-[#00C087] filter drop-shadow-[0_0_10px_rgba(0,192,135,0.4)]' : 'text-[#F6465D] filter drop-shadow-[0_0_10px_rgba(246,70,93,0.4)]'}`}>
+                        {pnl_pct}
+                    </div>
+                    <div className="text-[9px] text-[#848E9C] font-mono font-bold uppercase tracking-widest mt-1">REALTIME_PNL</div>
                 </div>
             </div>
             
-            <div className="grid grid-cols-2 gap-x-6 gap-y-4 text-[10px] font-mono">
-                <div className="flex flex-col border-l border-white/5 pl-3">
-                    <span className="text-[8px] text-[#848E9C] uppercase mb-0.5">ENTRY</span>
-                    <span className="text-white/90 font-bold">{entry_price}</span>
+            <div className="grid grid-cols-2 gap-6 mb-8">
+                <div className="space-y-1 group/item">
+                    <label className="text-[9px] text-[#848E9C] font-mono font-bold uppercase tracking-[0.2em] flex items-center gap-2">
+                        <span className="material-symbols-outlined text-[14px]">login</span>
+                        ENTRY
+                    </label>
+                    <div className="font-mono text-lg font-bold text-white/90 pl-5 border-l border-white/5">{entry_price}</div>
                 </div>
-                <div className="flex flex-col border-l border-white/5 pl-3">
-                    <span className="text-[8px] text-[#848E9C] uppercase mb-0.5">MARGIN</span>
-                    <span className="text-white/90 font-bold">{margin} USDT</span>
-                </div>
-                <div className="flex flex-col border-l border-white/10 pl-3">
-                    <span className="text-[8px] text-[#848E9C] uppercase mb-0.5">TAKE_PROFIT</span>
-                    <span className="text-[#00C087] font-bold">{tp}</span>
-                </div>
-                <div className="flex flex-col border-l border-white/10 pl-3">
-                    <span className="text-[8px] text-[#848E9C] uppercase mb-0.5">STOP_LOSS</span>
-                    <span className="text-[#F6465D] font-bold">{sl}</span>
+                <div className="space-y-1">
+                    <label className="text-[9px] text-[#848E9C] font-mono font-bold uppercase tracking-[0.2em] flex items-center gap-2">
+                        <span className="material-symbols-outlined text-[14px]">payments</span>
+                        MARGIN
+                    </label>
+                    <div className="font-mono text-lg font-bold text-white/90 pl-5 border-l border-white/5">{margin} <span className="text-[10px] opacity-40">USDT</span></div>
                 </div>
             </div>
 
-            <button 
-                onClick={handleClose}
-                className="mt-6 w-full py-2.5 bg-[#F6465D]/5 border border-[#F6465D]/20 text-[#F6465D] text-[9px] font-mono font-bold uppercase rounded-sm hover:bg-[#F6465D] hover:text-white transition-all flex items-center justify-center gap-2 group/btn"
-            >
-                <span className="material-symbols-outlined text-sm group-hover/btn:animate-pulse">block</span>
-                FORCE_CLOSE_POSITION
-            </button>
+            <div className="grid grid-cols-2 gap-4 border-t border-white/5 pt-6">
+                <div className="space-y-3">
+                    <label className="text-[9px] text-[#00C087] font-mono font-black uppercase tracking-[0.2em] flex items-center gap-2">
+                        <span className="material-symbols-outlined text-[16px]">trending_up</span>
+                        TAKE_PROFIT
+                    </label>
+                    <div className="relative group/edit">
+                        <input 
+                            type="number" 
+                            step="any"
+                            value={localTp || ''} 
+                            placeholder="0.0000"
+                            onChange={(e) => setLocalTp(e.target.value)}
+                            className="w-full bg-white/10 border border-white/20 rounded-none px-4 py-3 font-mono text-sm font-bold text-[#00C087] focus:outline-none focus:border-[#00C087] focus:bg-[#00C087]/10 transition-all placeholder:opacity-20 shadow-inner"
+                        />
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 material-symbols-outlined text-[14px] text-[#00C087] opacity-40 group-hover/edit:opacity-100 transition-opacity">edit</span>
+                    </div>
+                </div>
+                <div className="space-y-3">
+                    <label className="text-[9px] text-[#F6465D] font-mono font-black uppercase tracking-[0.2em] flex items-center gap-2">
+                        <span className="material-symbols-outlined text-[16px]">trending_down</span>
+                        STOP_LOSS
+                    </label>
+                    <div className="relative group/edit">
+                        <input 
+                            type="number" 
+                            step="any"
+                            value={localSl || ''} 
+                            placeholder="0.0000"
+                            onChange={(e) => setLocalSl(e.target.value)}
+                            className="w-full bg-white/10 border border-white/20 rounded-none px-4 py-3 font-mono text-sm font-bold text-[#F6465D] focus:outline-none focus:border-[#F6465D] focus:bg-[#F6465D]/10 transition-all placeholder:opacity-20 shadow-inner"
+                        />
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 material-symbols-outlined text-[14px] text-[#F6465D] opacity-40 group-hover/edit:opacity-100 transition-opacity">edit</span>
+                    </div>
+                </div>
+            </div>
+
+            <div className="flex gap-3 mt-8">
+                <button 
+                    onClick={handleUpdateParams}
+                    disabled={isSaving}
+                    className="flex-[2] py-4 bg-[#1FDDC4] text-black font-mono font-black text-[11px] uppercase tracking-widest transition-all hover:bg-[#1FDDC4]/90 active:scale-95 disabled:opacity-20 flex items-center justify-center gap-3 overflow-hidden group/save"
+                >
+                    <span className={`material-symbols-outlined text-[18px] ${isSaving ? 'animate-spin' : 'group-hover/save:scale-110 transition-transform'}`}>{isSaving ? 'sync' : 'done_all'}</span>
+                    {isSaving ? 'SYNCING...' : 'SAVE_ADJUSTMENTS'}
+                </button>
+                <button 
+                    onClick={handleClose}
+                    className="flex-1 py-4 bg-[#F6465D]/10 border border-[#F6465D]/30 text-[#F6465D] font-mono font-bold text-[10px] uppercase tracking-widest transition-all hover:bg-[#F6465D] hover:text-white active:scale-95 flex items-center justify-center gap-2 group/close"
+                >
+                    <span className="material-symbols-outlined text-[18px] group-hover/close:rotate-90 transition-transform">close</span>
+                    LIQUIDATE
+                </button>
+            </div>
         </div>
     );
 };
+
+
 
 export default App;
