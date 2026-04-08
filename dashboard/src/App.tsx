@@ -456,10 +456,11 @@ const MiniStat = ({ label, value }: { label: string, value: string }) => (
 
 
 
-const TradeCard = ({ id, symbol, side, entry_price, margin, tp, sl, source, leverage, pnl_pct = "+0.00%", showSource = false, onTradeClosed }: any) => {
+const TradeCard = ({ id, symbol, side, entry_price, margin, tp, sl, source, leverage, status = 'open', pnl_pct = "+0.00%", showSource = false, onTradeClosed }: any) => {
     // Si leverage viene como número (ej: 5), añadimos la 'x'. Si ya tiene string (ej: '10x'), lo dejamos.
     const displayLeverage = leverage ? (String(leverage).includes('x') ? leverage : `${leverage}x`) : "10x";
     const isLong = side?.toLowerCase() === 'long';
+    const isPending = status === 'pending';
     const [localTp, setLocalTp] = useState(tp);
     const [localSl, setLocalSl] = useState(sl);
     const [isSaving, setIsSaving] = useState(false);
@@ -508,7 +509,7 @@ const TradeCard = ({ id, symbol, side, entry_price, margin, tp, sl, source, leve
     };
 
     return (
-        <div className="glass-panel group rounded-sm p-6 border-white/5 bg-[#0B0E11]/60 transition-all hover:border-[#1FDDC4]/40 terminal-glow relative overflow-hidden backdrop-blur-xl">
+        <div className={`glass-panel group rounded-sm p-6 transition-all relative overflow-hidden backdrop-blur-xl ${isPending ? 'border-[#F0B90B]/40 bg-[#F0B90B]/5 border-dashed border-2' : 'border-white/5 bg-[#0B0E11]/60 hover:border-[#1FDDC4]/40 terminal-glow'}`}>
             {showSource && (
                 <div className="absolute top-0 right-0 px-3 py-1 bg-[#1FDDC4]/10 text-[#1FDDC4] text-[8px] font-mono font-black uppercase tracking-widest opacity-40">
                     {source || "MANUAL"}
@@ -525,13 +526,20 @@ const TradeCard = ({ id, symbol, side, entry_price, margin, tp, sl, source, leve
                         <span className={`px-2 py-0.5 text-[10px] font-black rounded-none uppercase tracking-widest ${isLong ? 'bg-[#00C087]/20 text-[#00C087]' : 'bg-[#F6465D]/20 text-[#F6465D]'}`}>
                             {side}
                         </span>
+                        {isPending && (
+                            <span className="px-2 py-0.5 text-[10px] font-black rounded-none uppercase tracking-widest bg-[#F0B90B]/20 text-[#F0B90B] animate-pulse">
+                                WAITING_PRICE
+                            </span>
+                        )}
                     </div>
                 </div>
                 <div className="text-right">
-                    <div className={`font-mono text-3xl font-black tracking-tight ${isLong ? 'text-[#00C087] filter drop-shadow-[0_0_10px_rgba(0,192,135,0.4)]' : 'text-[#F6465D] filter drop-shadow-[0_0_10px_rgba(246,70,93,0.4)]'}`}>
-                        {pnl_pct}
+                    <div className={`font-mono text-3xl font-black tracking-tight ${isPending ? 'text-[#848E9C] opacity-20' : isLong ? 'text-[#00C087] filter drop-shadow-[0_0_10px_rgba(0,192,135,0.4)]' : 'text-[#F6465D] filter drop-shadow-[0_0_10px_rgba(246,70,93,0.4)]'}`}>
+                        {isPending ? '0.00%' : pnl_pct}
                     </div>
-                    <div className="text-[9px] text-[#848E9C] font-mono font-bold uppercase tracking-widest mt-1">REALTIME_PNL</div>
+                    <div className="text-[9px] text-[#848E9C] font-mono font-bold uppercase tracking-widest mt-1">
+                        {isPending ? 'ESTIMATED_ROI' : 'REALTIME_PNL'}
+                    </div>
                 </div>
             </div>
             
@@ -602,8 +610,8 @@ const TradeCard = ({ id, symbol, side, entry_price, margin, tp, sl, source, leve
                     onClick={handleClose}
                     className="flex-1 py-4 bg-[#F6465D]/10 border border-[#F6465D]/30 text-[#F6465D] font-mono font-bold text-[10px] uppercase tracking-widest transition-all hover:bg-[#F6465D] hover:text-white active:scale-95 flex items-center justify-center gap-2 group/close"
                 >
-                    <span className="material-symbols-outlined text-[18px] group-hover/close:rotate-90 transition-transform">close</span>
-                    LIQUIDATE
+                    <span className="material-symbols-outlined text-[18px] group-hover/close:rotate-90 transition-transform">bolt</span>
+                    CIERRE
                 </button>
             </div>
         </div>

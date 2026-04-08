@@ -213,27 +213,37 @@ class TradingEngine:
 
         # Ejecución
         order = await self.exchange.create_order(
-            parsed["symbol"], parsed["side"], order_type, qty, parsed["entry"]
+            parsed["symbol"], parsed["side"], order_type, qty, parsed["entry"],
+            sl=parsed.get("sl"), tp=parsed.get("tp")
         )
         
         if order["status"] == "success":
-            # Establecer SL/TP en llamadas separadas para evitar Error 43023
-            # Aumentamos el margen a 1.5s para asegurar que Bitget procese la operación market
-            logger.info(f"  [Engine] Orden market exitosa. Esperando 1.5s para sincronizar SL/TP...")
-            await asyncio.sleep(1.5)
-            sl_tp_res = await self.exchange.set_sl_tp(parsed["symbol"], parsed["sl"], parsed["tp"])
-            
-            if sl_tp_res.get("status") == "success":
-                logger.info(f"  [Engine] ✅ SL/TP establecidos correctamente: SL={parsed['sl']}, TP={parsed['tp']}")
-            else:
-                logger.warning(f"  [Engine] ⚠️ No se pudieron establecer SL/TP automáticamente: {sl_tp_res.get('message')}")
-            
+            logger.info(f"  [Engine] Orden {order_type} exitosa con SL/TP adjuntos.")
             sid = self.db.save_signal(raw_text, source=source, **parsed)["id"]
 
+            # REFUERZO DE SEGURIDAD SECUENCIAL:
+            # Ponemos el SL/TP inmediatamente después de la apertura de forma bloqueante
+            # para garantizar protección "desde el nacimiento".
+            if parsed.get("sl") or parsed.get("tp"):
+                logger.info(f"  [Engine] Protegiendo posición {parsed['symbol']} inmediatamente...")
+                await self.exchange.set_sl_tp(parsed["symbol"], sl_price=parsed.get("sl"), tp_price=parsed.get("tp"))
+            
+            # Guardamos el trade con el status correspondiente
+            trade_status = "pending" if order_type == "limit" else "open"
+            self.db.save_trade(
+                sid, parsed["symbol"], parsed["side"], parsed["entry"], 
+                margin=actual_margin, leverage=leverage, status=trade_status
+            )
+            
+            # SEGUNDA CAPA (Fondo): Sincronización a los 2.5s por si el exchange tiene lag
+            if order_type == "market" and (parsed.get("sl") or parsed.get("tp")):
+                async def safety_sync():
+                    await asyncio.sleep(2.5)
+                    await self.exchange.set_sl_tp(parsed["symbol"], sl_price=parsed.get("sl"), tp_price=parsed.get("tp"))
+                
+                asyncio.create_task(safety_sync())
 
-            # Guardamos el margen REAL utilizado (estimado)
-            self.db.save_trade(sid, parsed["symbol"], parsed["side"], parsed["entry"], margin=actual_margin, leverage=leverage)
-            thought = f"✅ Trade abierto: {symbol} {side.upper()} @ {parsed['entry']} (Size: {actual_margin:.2f} USDT, Lev: {leverage}x)"
+            thought = f"✅ Operación {trade_status.upper()} en {parsed['symbol']} ({parsed['side']}). Qty: {qty}"
             self.db.log_event("AI_THOUGHT", f"¡Éxito! {thought}", source=source)
             return thought
         else:
@@ -255,7 +265,10 @@ class TradingEngine:
             if category != "CLOSE_FULL" and len(active) > 1:
                 return f"⚠️ Especifique moneda para {category} (Múltiples trades)."
             if category == "CLOSE_FULL" and (not symbol or symbol == "ALL"):
-                for t in active: await self._execute_close(t["symbol"])
+                results = []
+                for t in active: 
+                    res = await self._execute_close(t["symbol"])
+                    results.append(res)
                 return f"✅ Liquidación masiva completada ({len(active)} trades)."
             symbol = active[0]["symbol"]
 
@@ -265,8 +278,11 @@ class TradingEngine:
             return f"✅ Cierre parcial del {pct}% ejecutado para {symbol}. SL movido a entrada."
 
         elif category == "CLOSE_FULL":
-            await self._execute_close(symbol)
-            return f"✅ Posición de {symbol} cerrada completamente."
+            res = await self._execute_close(symbol)
+            if res.get("status") == "success":
+                return f"✅ Posición de {symbol} cerrada completamente."
+            else:
+                return f"❌ Error al cerrar {symbol}: {res.get('message', 'Desconocido')}"
 
         elif category == "MOVE_BE":
             trade = self.db.get_trade_by_symbol(symbol)
@@ -275,6 +291,12 @@ class TradingEngine:
                 self.db.update_trade_status(trade["id"], tp1_hit=True, sl_moved=True)
                 return f"🛡️ SL movido a Break-Even para {symbol}."
             return f"⚠️ No se encontró trade activo para {symbol}."
+        
+        elif category == "FAST_CLOSE":
+            res = await self.exchange.fast_close_chase(symbol)
+            if res.get("status") == "success":
+                return f"⚡ Cierre Rápido (Chase SL) activado para {symbol}."
+            return f"❌ Fallo en Cierre Rápido: {res.get('message')}"
         
         return "ℹ️ Instrucción de gestión procesada."
 
@@ -293,9 +315,12 @@ class TradingEngine:
         logger.info(f"  [Gestión][Dashboard] Cierre de EMERGENCIA solicitado para {symbol} (ID: {trade_id})")
         self.db.log_event("ENGINE", f"Cierre manual solicitado desde Dashboard para {symbol}.", source=source)
         
-        await self._execute_close(symbol)
+        result = await self.exchange.fast_close_chase(symbol)
         
-        return {"status": "success", "symbol": symbol}
+        if result.get("status") == "success":
+            return {"status": "success", "symbol": symbol}
+        else:
+            return {"status": "error", "message": result.get("message", "Error al cerrar en exchange")}
 
     async def update_trade_params(self, trade_id: int, sl: float = None, tp: float = None):
         """Modifica SL/TP de un trade activo desde el Dashboard."""
@@ -331,18 +356,23 @@ class TradingEngine:
         self.db.log_event("AI_THOUGHT", f"Cerrando {symbol} en Exchange y DB.")
         
         # 1. Exchange
-        await self.exchange.close_position_full(symbol)
+        res = await self.exchange.close_position_full(symbol)
         
-        # 2. DB (Buscamos los trades activos de ese símbolo)
-        active_trades = self.db.get_active_trades()
-        target_trades = [t for t in active_trades if t["symbol"] == symbol]
-        
-        for t in target_trades:
-            # Obtenemos el precio actual como salida aproximada
-            mkt = await self.exchange.get_market_price(symbol)
-            self.db.update_trade_status(t["id"], exit_price=mkt["price"])
-        
-        logger.info(f"  [OK] Cierre completado para {symbol}.")
+        if res.get("status") == "success":
+            # 2. DB (Buscamos los trades activos de ese símbolo)
+            active_trades = self.db.get_active_trades()
+            target_trades = [t for t in active_trades if t["symbol"] == symbol]
+            
+            for t in target_trades:
+                # Obtenemos el precio actual como salida aproximada
+                mkt = await self.exchange.get_market_price(symbol)
+                self.db.update_trade_status(t["id"], exit_price=mkt["price"])
+            
+            logger.info(f"  [OK] Cierre completado para {symbol}.")
+        else:
+            logger.error(f"  [Error] Fallo al cerrar en exchange: {res.get('message')}")
+            
+        return res
 
 if __name__ == "__main__":
     # Test rápido de orquestación manual

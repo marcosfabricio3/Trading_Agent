@@ -21,9 +21,9 @@ class DBService:
         
         return save_signal(raw_text, symbol, side, entry, tp, sl, risk, leverage, source)
 
-    def save_trade(self, signal_id, symbol, side, entry, margin, leverage=10):
+    def save_trade(self, signal_id, symbol, side, entry, margin, leverage=10, status='open'):
         """Guarda un nuevo trade en la base de datos."""
-        return save_trade(signal_id, symbol, side, entry, margin, leverage)
+        return save_trade(signal_id, symbol, side, entry, margin, leverage, status)
 
     def log_event(self, event_type, message, details=None, source="Global"):
         return log_event(event_type, message, details, source)
@@ -31,8 +31,8 @@ class DBService:
     def get_active_trades(self):
         return get_active_trades()
 
-    def update_trade_status(self, trade_id, tp1_hit=None, sl_moved=None, exit_price=None):
-        return update_trade_status(trade_id, tp1_hit=tp1_hit, sl_moved=sl_moved, exit_price=exit_price)
+    def update_trade_status(self, trade_id, status=None, tp1_hit=None, sl_moved=None, exit_price=None):
+        return update_trade_status(trade_id, status=status, tp1_hit=tp1_hit, sl_moved=sl_moved, exit_price=exit_price)
 
     def get_settings(self):
         """Retorna las reglas de trading guardadas."""

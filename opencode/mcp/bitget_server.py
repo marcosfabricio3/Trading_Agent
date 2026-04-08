@@ -57,44 +57,39 @@ async def cancel_plan_orders(symbol: str):
     try:
         clean_symbol = symbol.replace("/USDT:USDT", "").replace("USDT", "")
         print(f"[Bitget][Protocol] Cancelando órdenes de plan para {clean_symbol}...")
-        # Estrategia de Resiliencia Máxima: fetch2 (Nivel bajo de CCXT)
-        # Estrategia de Autocuración (Self-Healing)
-        # Intentamos liberar el margen antes de cerrar la posición.
+
+        # 1. Intentamos la cancelación de planes nativa de CCXT (Best effort, timeout 2s)
         try:
-            # 1. Intentamos la cancelación de planes nativa de CCXT (Best effort, timeout 2s)
-            try:
-                print(f"[Bitget][Protocol] Intentando cancel_all_orders(plan=True)...")
-                await asyncio.wait_for(
-                    asyncio.to_thread(exchange.cancel_all_orders, symbol, {'plan': True}),
-                    timeout=2.0
-                )
-                print(f"[Bitget][Protocol] EXITO en cancelación nativa")
-            except Exception: pass
+            print(f"[Bitget][Protocol] Intentando cancel_all_orders(plan=True)...")
+            await asyncio.wait_for(
+                asyncio.to_thread(exchange.cancel_all_orders, symbol, {'plan': True}),
+                timeout=2.0
+            )
+            print(f"[Bitget][Protocol] EXITO en cancelación nativa")
+        except Exception: 
+            pass
 
-            # 2. Intentamos buscar cualquier método dinámico de cancelación (V1/V2)
-            for m_name in dir(exchange):
-                if 'cancel' in m_name.lower() and 'plan' in m_name.lower() and ('v1' in m_name.lower() or 'v2' in m_name.lower()):
-                    try:
-                        print(f"[Bitget][Protocol] Probando método dinámico: {m_name}")
-                        await asyncio.wait_for(
-                            asyncio.to_thread(getattr(exchange, m_name), {'symbol': f"{clean_symbol}USDT", 'productType': 'usdt-futures'}),
-                            timeout=2.0
-                        )
-                        print(f"[Bitget][Protocol] EXITO con {m_name}")
-                        break # Si uno funciona, paramos
-                    except Exception: pass
+        # 2. Intentamos buscar cualquier método dinámico de cancelación (V1/V2)
+        for m_name in dir(exchange):
+            if 'cancel' in m_name.lower() and ('plan' in m_name.lower() or 'stop' in m_name.lower()):
+                try:
+                    print(f"[Bitget][Protocol] Probando método dinámico: {m_name}")
+                    # Bitget V2 suele usar 'productType' y 'symbol'
+                    await asyncio.wait_for(
+                        asyncio.to_thread(getattr(exchange, m_name), {
+                            'symbol': symbol.replace("/USDT:USDT", "").replace("USDT", "") + "USDT", 
+                            'productType': 'usdt-futures'
+                        }),
+                        timeout=2.0
+                    )
+                    print(f"[Bitget][Protocol] EXITO con {m_name}")
+                except Exception: 
+                    pass
 
-        except Exception as e_final:
-            print(f"[Bitget][Protocol] Error silencioso en radar: {e_final}")
-        
         return True # Retornamos True para indicar que se intentó el desbloqueo
-        print(f"[Bitget][Protocol] Respuesta cancelación: {res.get('msg', 'Sin mensaje')}")
-        return res
     except Exception as e:
-        import traceback
         print(f"[Bitget][Protocol] ERROR CRITICO cancelando planes: {type(e).__name__} - {e}")
-        # traceback.print_exc() # Opcional para debug extremo
-        return None
+        return False
 
 async def safe_execute_with_fallback(func_name, symbol, action_side, pos_side, qty, price, extra_params):
     """
@@ -110,6 +105,7 @@ async def safe_execute_with_fallback(func_name, symbol, action_side, pos_side, q
         else:
             # UNILATERAL (One-Way)
             if 'posSide' in p: del p['posSide']
+            p['productType'] = 'usdt-futures' # Siempre forzar para V2
             if func_name in ["CLOSE", "FULL_CLOSE", "PARTIAL_CLOSE", "SL", "TP"]:
                 p['reduceOnly'] = True
                 p['tradeSide'] = 'close'
@@ -118,14 +114,20 @@ async def safe_execute_with_fallback(func_name, symbol, action_side, pos_side, q
         return p
 
     def get_action_side(mode):
-        if func_name in ["OPEN", "CLOSE", "FULL_CLOSE", "PARTIAL_CLOSE"]:
-            target = action_side.lower()
-        else:
-            # PLAN ORDERS (SL/TP) en Unilateral: side = posSide
-            if mode == "one_way_mode":
+        # En One-Way mode de Bitget V2:
+        # OPEN LONG -> Side Buy
+        # CLOSE LONG -> Side Sell
+        # SL/TP for LONG -> Side Buy! (Bitget v2 espera el lado de la posición en modo unilateral)
+        
+        target = action_side.lower()
+        
+        if mode == "one_way_mode":
+            if func_name in ["SL", "TP"]:
+                # Según feedback del usuario, el modo previo (side=pos_side) funcionaba perfecto.
                 target = pos_side.lower()
             else:
                 target = action_side.lower()
+
         return 'buy' if target in ['buy', 'buy_long', 'long'] else 'sell'
 
     try:
@@ -142,64 +144,40 @@ async def safe_execute_with_fallback(func_name, symbol, action_side, pos_side, q
         msg = str(e1).lower()
         print(f"[Bitget][Debug] Error capturado: {msg}")
         
-        # ERROR 22002 o Bloqueo: Probable margen congelado por SL/TP
-        if ("22002" in msg or "43025" in msg) and func_name in ["FULL_CLOSE", "PARTIAL_CLOSE", "CLOSE"]:
+        # 22002: No position to close (Already closed)
+        # 43025: Position blocked by plan orders
+        if ("22002" in msg) and func_name in ["FULL_CLOSE", "PARTIAL_CLOSE", "CLOSE"]:
+             print(f"[Bitget][{func_name}] Operación completada: La posición ya no está abierta ({msg})")
+             return {"status": "success", "message": "Position already closed"}
+
+        if ("43025" in msg) and func_name in ["FULL_CLOSE", "PARTIAL_CLOSE", "CLOSE"]:
             print(f"[Bitget][{func_name}] !!! Margen bloqueado detectado. Iniciando protocolo de desbloqueo...")
             
-            # Radar de Autocuración de Planes
-            # Buscamos cualquier método dinámico para liberar el margen
-            for m_name in dir(exchange):
-                if 'cancel' in m_name.lower() and 'plan' in m_name.lower():
-                    try:
-                        print(f"[Bitget][Protocol] Intentando liberación con: {m_name}")
-                        # Notar: Usamos el símbolo limpio XRPUSDT y el productType correcto V2
-                        await asyncio.wait_for(
-                            asyncio.to_thread(getattr(exchange, m_name), {
-                                'symbol': symbol.replace("/USDT:USDT", "").replace("USDT", "") + "USDT", 
-                                'productType': 'usdt-futures'
-                            }),
-                            timeout=2.0
-                        )
-                        print(f"[Bitget][Protocol] EXITO con {m_name}")
-                        break # Si uno funciona, paramos
-                    except Exception: pass
-            
-            await asyncio.sleep(3.0) # Esperamos sincronización del motor de Bitget
+            await cancel_plan_orders(symbol)
+            await asyncio.sleep(2.0) # Esperamos sincronización del motor de Bitget
             
             try:
                 refreshed_pos = await get_position(symbol)
-                real_size = float(refreshed_pos.get('info', {}).get('total', 0))
+                real_size = refreshed_pos.get("size", 0) # Usar size normalizado
                 if real_size > 0:
-                    print(f"[Bitget][{func_name}] Reintentando con size real tras desbloqueo: {real_size}")
-                    new_params = params.copy()
+                    new_params = p.copy()
                     new_params['reduceOnly'] = True
-                    return await asyncio.to_thread(
+                    res = await asyncio.to_thread(
                         exchange.create_order,
                         symbol, 'market', ccxt_side, real_size, None, new_params
                     )
-                else:
-                    print(f"[Bitget][{func_name}] Posición ya cerrada tras desbloqueo.")
-                    return {"id": "closed_ok"}
-            except Exception as retry_e:
-                print(f"[Bitget][{func_name}] Falló reintento tras desbloqueo: {retry_e}")
-                size = refreshed_pos.get("size", 0)
-                if size > 0:
-                    # Si es FULL, cerramos todo. Si es PARTIAL, mantenemos la proporción solicitada.
-                    real_qty = size if func_name == "FULL_CLOSE" else (size * (qty/size if size > 0 else 1.0))
-                    real_qty_p = float(exchange.amount_to_precision(symbol, real_qty))
-                    print(f"[Bitget][{func_name}] Reintentando con size real tras desbloqueo: {real_qty_p}")
-                    res = await asyncio.to_thread(exchange.create_order, symbol, 'market', ccxt_side, real_qty_p, None, p)
                     return {"status": "success", "result": res}
                 else:
-                    print(f"[Bitget][{func_name}] Posición ya no existe tras desbloqueo.")
-                    return {"status": "success", "message": "Position already closed"}
-            except Exception as re_err:
-                print(f"[Bitget][{func_name}] Falló reintento tras desbloqueo: {re_err}")
+                    print(f"[Bitget][{func_name}] Posición ya cerrada tras desbloqueo.")
+                    return {"status": "success", "id": "closed_ok", "message": "Position successfully liquidated or already closed"}
+            except Exception as retry_e:
+                print(f"[Bitget][{func_name}] Falló reintento tras desbloqueo: {retry_e}")
+                return {"status": "error", "message": f"Fallo al liquidar tras desbloqueo: {retry_e}"}
 
         # Fallback de Modo (Hedge <-> One-Way)
         if any(code in msg for code in MODE_MISMATCH_ERRORS) or "position" in msg:
             alt_mode = "one_way_mode" if current_pos_mode == "hedge_mode" else "hedge_mode"
-            print(f"[Bitget][{func_name}] FALLBACK (Error {e1}). Probando {alt_mode}...")
+            print(f"[Bitget][{func_name}] FALLBACK (Error). Probando {alt_mode}...")
             try:
                 temp_mode = alt_mode 
                 ccxt_side_alt = get_action_side(temp_mode)
@@ -209,6 +187,7 @@ async def safe_execute_with_fallback(func_name, symbol, action_side, pos_side, q
                 return {"status": "success", "fallback": True, "result": res}
             except Exception as e2:
                 return {"status": "error", "message": f"Fallo en ambos modos: {e2}"}
+        
         return {"status": "error", "message": str(e1)}
 
 @mcp.tool()
@@ -229,18 +208,69 @@ async def get_market_price(symbol: str) -> Dict:
 @mcp.tool()
 async def get_position(symbol: str) -> Dict:
     try:
-        if "/" not in symbol: symbol = f"{symbol.replace('USDT', '')}/USDT:USDT"
-        positions = await asyncio.to_thread(exchange.fetch_positions, [symbol])
+        clean_target = symbol.replace("/USDT:USDT", "").replace("USDT", "").upper()
+        
+        # Primero intentamos con el símbolo exacto filtrado
+        try:
+            positions = await asyncio.to_thread(exchange.fetch_positions, [symbol])
+        except:
+            positions = []
+            
+        if not positions:
+            # Fallback: Listar todo si el filtro falla
+            positions = await asyncio.to_thread(exchange.fetch_positions)
+        
+        found_pos = None
+        current_symbols = []
+        
         for pos in positions:
+            pos_symbol = pos.get('symbol', '')
+            clean_pos_sym = pos_symbol.replace("/USDT:USDT", "").replace("USDT", "").replace("_UMCBL", "").upper()
             size = float(pos.get('contracts', pos.get('amount', 0)) or 0)
-            if size > 0: return {"symbol": symbol, "size": size, "side": pos.get('side')}
+            
+            if size > 0:
+                current_symbols.append(pos_symbol)
+                # Comparación flexible: coincidencia de base o exacta
+                if pos_symbol == symbol or clean_pos_sym == clean_target:
+                    found_pos = {"symbol": pos_symbol, "size": size, "side": pos.get('side')}
+                    break
+        
+        if found_pos:
+            return found_pos
+            
+        if current_symbols:
+            print(f"[Bitget][Debug] Símbolo {symbol} ({clean_target}) no hallado. Posiciones activas: {current_symbols}")
+            
         return {"symbol": symbol, "size": 0.0}
-    except Exception as e: return {"error": str(e)}
+    except Exception as e: 
+        print(f"[Bitget][Error] get_position falló: {e}")
+        return {"error": str(e), "size": 0.0}
 
 @mcp.tool()
-async def create_order(symbol: str, side: str, order_type: str, qty: float, price: float = None) -> Dict:
+async def get_plan_orders(symbol: str) -> Dict:
+    """Obtiene órdenes condicionales (SL/TP) activas para sincronizar con la DB."""
+    try:
+        if "/" not in symbol: symbol = f"{symbol.replace('USDT', '')}/USDT:USDT"
+        orders = await asyncio.to_thread(exchange.fetch_open_orders, symbol, params={'planType': 'normal_plan'})
+        sl = 0.0
+        tp = 0.0
+        for o in orders:
+            trigger_price = float(o.get('stopPrice', 0))
+            if trigger_price > 0:
+                if not sl: sl = trigger_price
+                else: tp = trigger_price
+        return {"symbol": symbol, "sl": sl, "tp": tp, "orders_count": len(orders)}
+    except Exception as e:
+        print(f"[Bitget][Error] get_plan_orders falló: {e}")
+        return {"error": str(e), "sl": 0.0, "tp": 0.0}
+
+@mcp.tool()
+async def create_order(symbol: str, side: str, order_type: str, qty: float, price: float = None, sl_price: float = None, tp_price: float = None) -> Dict:
     if "/" not in symbol: symbol = f"{symbol.replace('USDT', '')}/USDT:USDT"
     pos_side = 'long' if side.lower() in ['long', 'buy', 'buy_long'] else 'short'
+    
+    # Nota: No enviamos SL/TP adjuntos por inestabilidad de la API V2 en este modo.
+    # El motor (engine) se encarga de ponerlos inmediatamente después de la apertura.
     return await safe_execute_with_fallback("OPEN", symbol, side, pos_side, qty, price, {})
 
 @mcp.tool()
@@ -307,6 +337,44 @@ async def set_leverage(symbol: str, leverage: int) -> Dict:
         res = await asyncio.to_thread(exchange.set_leverage, int(leverage), symbol)
         return {"status": "success", "result": res}
     except Exception as e: return {"status": "error", "message": str(e)}
+
+@mcp.tool()
+async def fast_close_chase(symbol: str) -> Dict:
+    """Implementa el cierre rápido 'Chase' moviendo el SL a precio de mercado."""
+    try:
+        pos = await get_position(symbol)
+        if pos.get("size", 0) == 0:
+            return {"status": "error", "message": "No hay posición activa para cerrar."}
+            
+        pos_side = pos['side']
+        symbol_ccxt = pos['symbol']
+        
+        # Obtener precio actual
+        ticker = await asyncio.to_thread(exchange.fetch_ticker, symbol_ccxt)
+        current_price = float(ticker['last'])
+        
+        # Calcular SL "pegado" (0.05% de distancia para forzar ejecución)
+        # Si es LONG, SL está abajo. Si es SHORT, SL está arriba.
+        offset = 0.0005 
+        if pos_side == 'long':
+            target_sl = current_price * (1 - offset)
+        else:
+            target_sl = current_price * (1 + offset)
+            
+        print(f"[Bitget][FastClose] Chase SL para {symbol_ccxt} -> {target_sl} (Precio actual: {current_price})")
+        
+        # Cancelamos planes anteriores primero
+        await cancel_plan_orders(symbol_ccxt)
+        
+        # Ponemos el nuevo SL
+        res = await set_sl_tp(symbol_ccxt, sl_price=target_sl)
+        
+        if res.get("status") == "success":
+            return {"status": "success", "message": f"Chase SL activado a {target_sl:.4f} para cierre rápido."}
+        return res
+        
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 if __name__ == "__main__":
     mcp.run()

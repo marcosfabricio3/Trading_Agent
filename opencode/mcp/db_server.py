@@ -145,12 +145,12 @@ def log_event(event_type: str, message: str, metadata: dict = None, source: str 
     return {"status": "success"}
 
 @mcp.tool()
-def save_trade(signal_id: int, symbol: str, side: str, entry_price: float, margin: float = 0, leverage: int = 10):
+def save_trade(signal_id: int, symbol: str, side: str, entry_price: float, margin: float = 0, leverage: int = 10, status: str = 'open'):
     local_conn = sqlite3.connect(DB_PATH)
     local_cursor = local_conn.cursor()
     local_cursor.execute(
-        "INSERT INTO trades (signal_id, symbol, side, entry_price, margin, leverage) VALUES (?, ?, ?, ?, ?, ?)",
-        (signal_id, symbol, side, entry_price, margin, leverage)
+        "INSERT INTO trades (signal_id, symbol, side, entry_price, margin, leverage, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (signal_id, symbol, side, entry_price, margin, leverage, status)
     )
     trade_id = local_cursor.lastrowid
     local_conn.commit()
@@ -175,18 +175,21 @@ def get_active_trades():
         SELECT t.*, s.tp, s.sl, s.source, s.leverage as signal_leverage
         FROM trades t 
         JOIN signals s ON t.signal_id = s.id 
-        WHERE t.status = 'open'
+        WHERE t.status IN ('open', 'pending')
     """)
     trades = [dict(row) for row in local_cursor.fetchall()]
     local_conn.close()
     return trades
 
 @mcp.tool()
-def update_trade_status(trade_id: int, tp1_hit: bool = None, sl_moved: bool = None, exit_price: float = None):
+def update_trade_status(trade_id: int, status: str = None, tp1_hit: bool = None, sl_moved: bool = None, exit_price: float = None):
     local_conn = sqlite3.connect(DB_PATH)
     local_cursor = local_conn.cursor()
     updates = []
     params = []
+    if status is not None:
+        updates.append("status = ?")
+        params.append(status)
     if tp1_hit is not None:
         updates.append("tp1_hit = ?")
         params.append(1 if tp1_hit else 0)
