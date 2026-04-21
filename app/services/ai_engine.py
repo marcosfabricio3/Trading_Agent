@@ -4,6 +4,8 @@ import google.generativeai as genai
 from app.logger import logger
 from dotenv import load_dotenv
 
+from app.services.db import DBService
+
 load_dotenv()
 
 class AIEngine:
@@ -12,6 +14,7 @@ class AIEngine:
     """
     def __init__(self):
         api_key = os.getenv("GEMINI_API_KEY")
+        self.db = DBService()
         if not api_key or api_key == "your_gemini_api_key_here":
             logger.error("[AI] No se ha configurado la GEMINI_API_KEY en el .env")
             self.model = None
@@ -27,6 +30,13 @@ class AIEngine:
         """
         if not self.model:
             return {"category": "ERROR", "reason": "No API Key"}
+
+        # Cargar reglas personalizadas
+        try:
+            settings = self.db.get_settings()
+            custom_rules = settings.get("ai_custom_rules", "")
+        except:
+            custom_rules = ""
 
         prompt = f"""
         Actúa como un experto analista de señales de trading institucional.
@@ -47,6 +57,8 @@ class AIEngine:
         - Si es PARTIAL_CLOSE, extrae: symbol (si existe), percent (20, 30 o 50).
         - Devuelve ÚNICAMENTE un JSON puro con este formato:
           {{ "category": "XXX", "data": {{...}}, "reason": "breve explicación" }}
+        
+        {f"INSTRUCCIONES ADICIONALES DEL USUARIO:\n{custom_rules}" if custom_rules else ""}
         """
 
         try:

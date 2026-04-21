@@ -110,7 +110,8 @@ def init_db():
         ("max_total_margin_usdt", "300"),
         ("max_trade_margin_usdt", "100"),
         ("risk_per_trade_pct", "1.0"),
-        ("monitored_chats", "Mensajes Guardados (ME)")
+        ("monitored_chats", "Mensajes Guardados (ME)"),
+        ("ai_custom_rules", "")
     ]
     for name, val in default_settings:
         cursor.execute("INSERT OR IGNORE INTO settings (name, value) VALUES (?, ?)", (name, val))

@@ -1,5 +1,5 @@
-from mcp.server.fastmcp import FastMCP
-from opencode.mcp.db_server import log_event
+from opencode.mcp.db_server import log_event, get_settings
+from fastmcp import FastMCP
 import google.generativeai as genai
 import os
 import json
@@ -16,7 +16,7 @@ mcp = FastMCP("AI Signal Parser")
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 model = genai.GenerativeModel("gemini-3.1-flash-lite-preview")
 
-PROMPT_SISTEMA = """
+PROMPT_SISTEMA_BASE = """
 Eres un experto en trading. Tu tarea es extraer datos de señales de Telegram.
 Categorías: 
 1. NEW_SIGNAL: Nueva operación (requiere símbolo, side, entrada, TP, SL).
@@ -40,7 +40,15 @@ async def parse_signal(text: str):
         if len(text) > 3:
             log_event("AI_THOUGHT", f"Analizando intención del mensaje: '{text[:25]}...'", {"service": "parser"})
         
-        response = model.generate_content(f"{PROMPT_SISTEMA}\n\nMensaje: {text}")
+        # 1. Obtener reglas personalizadas de la DB
+        settings = get_settings()
+        custom_rules = settings.get("ai_custom_rules", "")
+        
+        full_prompt = PROMPT_SISTEMA_BASE
+        if custom_rules and len(custom_rules.strip()) > 0:
+            full_prompt += f"\n\nREGLAS PERSONALIZADAS E INSTRUCCIONES DEL USUARIO:\n{custom_rules}"
+            
+        response = model.generate_content(f"{full_prompt}\n\nMensaje: {text}")
         raw_json = response.text.replace("```json", "").replace("```", "").strip()
         data = json.loads(raw_json)
         

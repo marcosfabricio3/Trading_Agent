@@ -1,6 +1,8 @@
 import sqlite3
 import asyncio
-from fastapi import FastAPI, Request
+import sys
+import os
+from fastapi import FastAPI, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from app.services import db, exchange
 from app.logger import logger
@@ -359,6 +361,24 @@ async def toggle_telegram_chat(request: Request, data: dict):
     except Exception as e:
         logger.error(f"Error toggling chat: {e}")
         return {"error": str(e)}
+
+@app.post("/api/system/restart")
+async def restart_system(background_tasks: BackgroundTasks):
+    """
+    Reinicia el proceso completo del backend (Motor + API).
+    """
+    logger.info("♻️ Solicitud de reinicio del sistema recibida desde el Dashboard...")
+    
+    def perform_restart():
+        # Esperamos un momento para que la respuesta HTTP se envíe correctamente
+        import time
+        time.sleep(1)
+        logger.info("♻️ Reiniciando proceso de Python...")
+        # Reemplaza el proceso actual con uno nuevo (mismos argumentos)
+        os.execl(sys.executable, sys.executable, *sys.argv)
+
+    background_tasks.add_task(perform_restart)
+    return {"status": "success", "message": "Reinicio en progreso..."}
 
 if __name__ == "__main__":
     import uvicorn

@@ -30,11 +30,21 @@ const App: React.FC = () => {
     });
     const [telegramDialogs, setTelegramDialogs] = useState<any[]>([]);
     const [isScanning, setIsScanning] = useState(false);
+    const [isRestarting, setIsRestarting] = useState(false);
     const scrollRef = useRef<HTMLDivElement>(null);
+    const autoScrollRef = useRef(true);
 
     const scrollToBottom = () => {
-        if (scrollRef.current) {
+        if (scrollRef.current && autoScrollRef.current) {
             scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+        }
+    };
+
+    const handleScroll = () => {
+        if (scrollRef.current) {
+            const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
+            // Si está a menos de 50px del fondo, mantenemos el auto-scroll activo
+            autoScrollRef.current = scrollHeight - scrollTop - clientHeight < 50;
         }
     };
 
@@ -140,7 +150,7 @@ const App: React.FC = () => {
     }, [selectedChat]);
 
     useEffect(() => {
-        if (activeTab === 'Management') scanTelegram();
+        if (activeTab === 'ChatManagement') scanTelegram();
     }, [activeTab]);
 
     const updateSetting = async (name: string, value: string) => {
@@ -151,10 +161,28 @@ const App: React.FC = () => {
             body: JSON.stringify({ [name]: value })
         });
     };
+    
+    const handleRestartBackend = async () => {
+        if (!window.confirm("♻️ ¿Deseas reiniciar el MOTOR del agente? El frontend seguirá activo, pero la conexión se perderá unos segundos.")) return;
+        
+        setIsRestarting(true);
+        try {
+            const res = await fetch('http://localhost:8000/api/system/restart', { method: 'POST' });
+            if (res.ok) {
+                // Dar tiempo al backend para morir y revivir
+                setTimeout(() => {
+                    setIsRestarting(false);
+                }, 5000);
+            }
+        } catch (e) {
+            console.error("Restart request failed", e);
+            setIsRestarting(false);
+        }
+    };
 
     return (
-        <div className="min-h-screen bg-[#050505] font-body text-[#EAECEF] selection:bg-[#1FDDC4]/30">
-            <nav className="sticky top-0 z-50 flex items-center justify-between w-full border-b border-white/5 bg-[#0B0E11]/80 backdrop-blur-md px-6 py-4">
+        <div className="h-screen flex flex-col overflow-hidden bg-[#050505] font-body text-[#EAECEF] selection:bg-[#1FDDC4]/30">
+            <nav className="flex-shrink-0 z-50 flex items-center justify-between w-full border-b border-white/5 bg-[#0B0E11]/80 backdrop-blur-md px-6 py-4">
                 <div className="flex items-center gap-3">
                     <div className="h-6 w-6 bg-[#1FDDC4] rounded-sm rotate-45 flex items-center justify-center shadow-[0_0_15px_rgba(31,221,196,0.4)]">
                         <div className="h-3 w-3 bg-black rounded-full"></div>
@@ -176,20 +204,34 @@ const App: React.FC = () => {
                 </div>
             </nav>
 
-            <div className="flex min-h-screen">
-                <aside className="fixed left-0 top-16 hidden h-[calc(100vh-64px)] w-64 flex-col border-r border-white/5 bg-[#0B0E11] py-8 lg:flex">
+            <div className="flex flex-1 min-h-0">
+                <aside className="hidden h-full w-64 flex-shrink-0 flex-col border-r border-white/5 bg-[#0B0E11] py-8 lg:flex">
                     <div className="px-6 space-y-8">
                         <MiniStat label="LONGs ACTIVOS" value={performance.longs_open.toString()} />
                         <MiniStat label="SHORTs ACTIVOS" value={performance.shorts_open.toString()} />
                     </div>
                     <nav className="flex-1 mt-12 space-y-1">
                         <NavLink icon="grid_view" label="Dashboard" active={activeTab === 'Chats'} onClick={() => setActiveTab('Chats')} />
+                        <NavLink icon="account_tree" label="Admin. Chats" active={activeTab === 'ChatManagement'} onClick={() => setActiveTab('ChatManagement')} />
                         <NavLink icon="settings_input_component" label="Configuración" active={activeTab === 'Management'} onClick={() => setActiveTab('Management')} />
                     </nav>
+
+                    <div className="px-6 mt-auto">
+                        <button 
+                            onClick={handleRestartBackend}
+                            disabled={isRestarting}
+                            className={`w-full flex items-center justify-center gap-3 py-4 rounded-sm border font-mono text-[10px] font-black uppercase tracking-widest transition-all ${isRestarting ? 'bg-white/5 border-white/10 text-[#848E9C] cursor-not-allowed' : 'bg-[#F6465D]/10 border-[#F6465D]/20 text-[#F6465D] hover:bg-[#F6465D] hover:text-white shadow-[0_0_15px_rgba(246,70,93,0.1)] hover:shadow-[0_0_25px_rgba(246,70,93,0.3)] hover:scale-[1.02] active:scale-95'}`}
+                        >
+                            <span className={`material-symbols-outlined text-[18px] ${isRestarting ? 'animate-spin' : ''}`}>
+                                {isRestarting ? 'sync' : 'restart_alt'}
+                            </span>
+                            {isRestarting ? 'REINICIANDO...' : 'ACTUALIZAR MOTOR'}
+                        </button>
+                    </div>
                 </aside>
 
-                <main className="mx-auto w-full max-w-[1600px] flex-1 p-8 lg:ml-64">
-                    <header className="mb-12 flex justify-between items-end">
+                <main className="mx-auto w-full max-w-[1600px] flex-1 flex flex-col p-8 min-h-0">
+                    <header className="mb-8 flex-shrink-0 flex justify-between items-end">
                         <div className="space-y-1">
                             <span className="text-[#848E9C] text-[10px] font-bold uppercase tracking-[0.2em] font-mono">ACCOUNT_SUMMARY / EQUITY</span>
                             <h1 className="bitget-glow font-mono text-5xl font-extrabold tracking-tighter text-[#1FDDC4] md:text-7xl">{balance}</h1>
@@ -208,18 +250,18 @@ const App: React.FC = () => {
                         </a>
                     </header>
 
-                    <div className="space-y-8 transition-all duration-500">
+                    <div className="flex-1 min-h-0 transition-all duration-500 flex flex-col">
                         {/* Secciones de Trading y Analytics eliminadas por solicitud de usuario */}
 
                         {activeTab === 'Chats' && (
-                            <div className="grid grid-cols-12 gap-8 h-[800px]">
-                                <div className="col-span-12 lg:col-span-5 flex flex-col space-y-6">
-                                    <div className="space-y-4">
+                            <div className="grid grid-cols-12 gap-8 flex-1 min-h-0">
+                                <div className="col-span-12 lg:col-span-5 flex flex-col space-y-6 min-h-0 h-full">
+                                    <div className="space-y-4 flex-shrink-0">
                                         <h2 className="font-mono text-sm font-bold tracking-[0.3em] text-[#848E9C] uppercase mb-4 flex items-center gap-2">
                                             <span className="material-symbols-outlined text-[18px]">forum</span>
                                             CHATS Y RAZONAMIENTO IA
                                         </h2>
-                                        <div className="grid grid-cols-2 gap-2 max-h-[180px] overflow-y-auto pr-2 custom-scrollbar">
+                                        <div className="grid grid-cols-2 gap-2 max-h-[140px] overflow-y-auto pr-2 custom-scrollbar">
                                             {chats.map(c => (
                                                 <button 
                                                     key={c} 
@@ -231,7 +273,7 @@ const App: React.FC = () => {
                                             ))}
                                         </div>
                                     </div>
-                                    <div ref={scrollRef} className="flex-1 glass-panel terminal-glow p-6 overflow-y-auto custom-scrollbar border-[#1FDDC4]/10 bg-[#1FDDC4]/2">
+                                    <div ref={scrollRef} onScroll={handleScroll} className="flex-1 min-h-0 glass-panel terminal-glow p-6 overflow-y-auto custom-scrollbar border-[#1FDDC4]/10 bg-[#1FDDC4]/2 relative">
                                         {logs.filter((l:any) => selectedChat === 'Global' || l.source === selectedChat).map((log: any, i: number) => (
                                             <div key={i} className="mb-6 last:mb-0 space-y-2 border-l-2 border-white/5 pl-4 hover:border-[#1FDDC4]/40 transition-colors">
                                                 <div className="flex justify-between items-center">
@@ -247,7 +289,7 @@ const App: React.FC = () => {
                                         </div>}
                                     </div>
                                 </div>
-                                <div className="col-span-12 lg:col-span-7 overflow-y-auto pr-2 custom-scrollbar">
+                                <div className="col-span-12 lg:col-span-7 min-h-0 h-full overflow-y-auto pr-4 custom-scrollbar">
                                     <h2 className="font-mono text-sm font-bold tracking-[0.3em] text-[#848E9C] uppercase mb-6 flex items-center gap-2">
                                         <div className="h-1 w-4 bg-[#1FDDC4]"></div>
                                         MONITOREO_DE_ORDENES / {selectedChat}
@@ -263,8 +305,8 @@ const App: React.FC = () => {
 
                         {/* Analytics Engine eliminado */}
 
-                        {activeTab === 'Management' && (
-                            <div className="space-y-12">
+                        {activeTab === 'ChatManagement' && (
+                            <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 h-full overflow-y-auto pr-4 custom-scrollbar pb-8">
                                 <ChatManagementPanel 
                                     settings={settings} 
                                     onUpdate={updateSetting} 
@@ -273,9 +315,12 @@ const App: React.FC = () => {
                                     scanTelegram={scanTelegram}
                                     toggleChat={toggleChat}
                                 />
-                                <div className="pt-8 border-t border-white/5">
-                                    <TradingRulesPanel settings={settings} onUpdate={updateSetting} />
-                                </div>
+                            </div>
+                        )}
+
+                        {activeTab === 'Management' && (
+                            <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 h-full overflow-y-auto pr-4 custom-scrollbar pb-8">
+                                <TradingRulesPanel settings={settings} onUpdate={updateSetting} />
                             </div>
                         )}
                     </div>
@@ -406,6 +451,22 @@ const TradingRulesPanel = ({ settings, onUpdate }: { settings: any, onUpdate: (n
                     <RuleInput label="TOTAL_PORTFOLIO_MARGIN" value={settings.max_total_margin_usdt} unit="USDT" min="1" max="1000" onChange={(v: string) => onUpdate('max_total_margin_usdt', v)} />
                     <RuleInput label="SINGLE_ORDER_QUOTA" value={settings.max_trade_margin_usdt} unit="USDT" min="1" max="500" onChange={(v: string) => onUpdate('max_trade_margin_usdt', v)} />
                     <RuleInput label="DYNAMIC_RISK_COEFFICIENT" value={settings.risk_per_trade_pct} unit="%" min="0.1" max="10" onChange={(v: string) => onUpdate('risk_per_trade_pct', v)} />
+                </div>
+
+                <div className="pt-6 border-t border-white/5 space-y-4">
+                    <label className="text-[10px] font-mono font-bold uppercase text-[#848E9C] tracking-[0.2em] flex items-center gap-2">
+                        <span className="material-symbols-outlined text-[16px] text-[#1FDDC4]">psychology</span>
+                        AI_CUSTOM_PROMPT_CONSTRAINTS & RULES
+                    </label>
+                    <div className="relative group">
+                        <textarea 
+                            value={settings.ai_custom_rules || ""} 
+                            onChange={(e) => onUpdate('ai_custom_rules', e.target.value)}
+                            placeholder="Ej: 'Si el mensaje dice PARCIAL, asume siempre 50%.' o 'Ignora señales de monedas MEME como DOGE o PEPE'..."
+                            className="w-full h-40 bg-black/40 border border-white/10 rounded-sm p-4 font-mono text-[11px] text-[#EAECEF] focus:outline-none focus:border-[#1FDDC4]/40 transition-all placeholder:opacity-20 custom-scrollbar resize-none"
+                        />
+                        <div className="absolute bottom-3 right-3 text-[8px] font-mono text-[#848E9C] opacity-40 uppercase">LIVE_SYNC_ENABLED</div>
+                    </div>
                 </div>
             </div>
         </div>

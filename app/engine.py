@@ -206,10 +206,30 @@ class TradingEngine:
         
         # Redondear a la precisión del exchange
         import math
-        qty = math.floor(qty * (10**precision)) / (10**precision)
+        # Determinar el factor según la precisión (si es int) o asumiendo 3 por defecto
+        # CCXT para Bitget a veces devuelve precisión como float (ej: 0.001) 
+        # o como número de decimales. Nos aseguramos de manejarlo seguro.
+        if isinstance(precision, float) and precision < 1:
+            try:
+                prec_decimals = int(round(-math.log10(precision)))
+            except:
+                prec_decimals = 3
+        else:
+            prec_decimals = int(precision)
+
+        factor = 10**prec_decimals
+        qty = math.floor(qty * factor) / factor
         
+        # Verificar mínima cantidad notional exigida (Bitget exige 5 USDT mínimo)
+        min_notional_exchange = 5.0
+        while qty * parsed["entry"] < min_notional_exchange:
+            # Si al redondear hacia abajo quedó en < 5 USDT, le sumamos el paso mínimo
+            qty += max(lot_size, 1 / factor)
+            # Redondeamos de nuevo para evitar problemas de flotantes (ej: 4.0000000000001)
+            qty = round(qty, prec_decimals)
+            
         actual_margin = qty * parsed["entry"] / leverage
-        logger.info(f"  [Engine] Cantidad final: {qty} (Basada en lot_size {lot_size}). Margen estimado: {actual_margin:.2f} USDT")
+        logger.info(f"  [Engine] Cantidad final: {qty} (Basada en lot_size {lot_size}, prec {prec_decimals}). Notional: {qty * parsed['entry']:.2f} USDT. Margen estimado: {actual_margin:.2f} USDT")
 
         # Ejecución
         order = await self.exchange.create_order(
