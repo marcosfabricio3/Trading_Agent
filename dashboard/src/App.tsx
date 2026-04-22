@@ -11,6 +11,18 @@ interface SystemStatus {
     debug_error?: string;
 }
 
+interface Alert {
+    id: number;
+    type: 'success' | 'error' | 'info';
+    message: string;
+}
+
+interface ConfirmConfig {
+    title: string;
+    message: string;
+    resolve: (value: boolean) => void;
+}
+
 const App: React.FC = () => {
     const [balance, setBalance] = useState<string>("$0,000.00");
     const [trades, setTrades] = useState<any[]>([]);
@@ -31,8 +43,24 @@ const App: React.FC = () => {
     const [telegramDialogs, setTelegramDialogs] = useState<any[]>([]);
     const [isScanning, setIsScanning] = useState(false);
     const [isRestarting, setIsRestarting] = useState(false);
+    const [alerts, setAlerts] = useState<Alert[]>([]);
+    const [confirmConfig, setConfirmConfig] = useState<ConfirmConfig | null>(null);
     const scrollRef = useRef<HTMLDivElement>(null);
     const autoScrollRef = useRef(true);
+
+    const showAlert = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
+        const id = Date.now();
+        setAlerts(prev => [...prev, { id, message, type }]);
+        setTimeout(() => {
+            setAlerts(prev => prev.filter(a => a.id !== id));
+        }, 5000);
+    };
+
+    const showConfirm = (title: string, message: string): Promise<boolean> => {
+        return new Promise((resolve) => {
+            setConfirmConfig({ title, message, resolve });
+        });
+    };
 
     const scrollToBottom = () => {
         if (scrollRef.current && autoScrollRef.current) {
@@ -163,7 +191,8 @@ const App: React.FC = () => {
     };
     
     const handleRestartBackend = async () => {
-        if (!window.confirm("♻️ ¿Deseas reiniciar el MOTOR del agente? El frontend seguirá activo, pero la conexión se perderá unos segundos.")) return;
+        const confirmed = await showConfirm("REINICIAR MOTOR", "♻️ ¿Deseas reiniciar el MOTOR del agente? El frontend seguirá activo, pero la conexión se perderá unos segundos.");
+        if (!confirmed) return;
         
         setIsRestarting(true);
         try {
@@ -192,15 +221,10 @@ const App: React.FC = () => {
                         <span className="text-[10px] opacity-40 ml-2 font-mono">v{systemStatus.version}</span>
                     </div>
                 </div>
-                <div className="hidden items-center gap-8 md:flex">
+                <div className="hidden items-center gap-6 md:flex">
                     <StatusBadge label="AI CORE" active={systemStatus?.services?.ai_engine === 'online'} />
                     <StatusBadge label="BOT ENGINE" active={systemStatus?.services?.bot_engine === 'online'} />
                     <StatusBadge label="BITGET CONN" active={systemStatus?.services?.bitget === 'online'} />
-                </div>
-                <div className="flex items-center gap-4">
-                    <div className="h-8 w-8 overflow-hidden rounded-full border border-outline-variant">
-                        <img alt="Profile" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCLZbEd7w7KZpAI6yBRbIeO6SFOnJ810aT-AxSQUa-e9oxLZT1RWHDi7v62VIYnWANWkzAMuDT9jDWtNIEpd126HdB04VSs4UzB-9i40Ngiw6idHVVlVa08BJutwoP9WsdfRTFLblIxhINITdlf5cUiNUcj9SHIwPuDQSANvdMQwj-AGWQdXaTxX1tKzoz_bsXp_sIkjscZIf4mQf80ceIlVp_qIBiKRvzZrvkjpttu671h_DjYRa00RLMeScudJWhZuKPcinhOQVY" />
-                    </div>
                 </div>
             </nav>
 
@@ -230,23 +254,23 @@ const App: React.FC = () => {
                     </div>
                 </aside>
 
-                <main className="mx-auto w-full max-w-[1600px] flex-1 flex flex-col p-8 min-h-0">
-                    <header className="mb-8 flex-shrink-0 flex justify-between items-end">
+                <main className="mx-auto w-full max-w-[1600px] flex-1 flex flex-col p-6 min-h-0">
+                    <header className="mb-6 flex-shrink-0 flex justify-between items-end">
                         <div className="space-y-1">
-                            <span className="text-[#848E9C] text-[10px] font-bold uppercase tracking-[0.2em] font-mono">ACCOUNT_SUMMARY / EQUITY</span>
-                            <h1 className="bitget-glow font-mono text-5xl font-extrabold tracking-tighter text-[#1FDDC4] md:text-7xl">{balance}</h1>
+                            <span className="text-[#848E9C] text-[9px] font-bold uppercase tracking-[0.2em] font-mono">ACCOUNT_SUMMARY / EQUITY</span>
+                            <h1 className="bitget-glow font-mono text-4xl font-extrabold tracking-tighter text-[#1FDDC4] md:text-6xl">{balance}</h1>
                         </div>
                         <a 
                             href="https://www.bitget.com/es/futures/usdt/BTCUSDT" 
                             target="_blank" 
                             rel="noopener noreferrer"
-                            className="group flex items-center gap-4 bg-[#1FDDC4] hover:bg-[#1FDDC4]/90 text-black px-6 py-4 rounded-sm transition-all shadow-[0_0_20px_rgba(31,221,196,0.3)] hover:scale-[1.02] active:scale-95"
+                            className="group flex items-center gap-3 bg-[#1FDDC4] hover:bg-[#1FDDC4]/90 text-black px-5 py-3 rounded-sm transition-all shadow-[0_0_15px_rgba(31,221,196,0.3)] hover:scale-[1.02] active:scale-95"
                         >
                             <div className="text-right">
-                                <div className="text-[10px] font-mono font-black uppercase leading-none opacity-60">BITGET</div>
-                                <div className="text-[14px] font-mono font-black uppercase">FUTUROS_DIRECTO</div>
+                                <div className="text-[9px] font-mono font-black uppercase leading-none opacity-60">BITGET</div>
+                                <div className="text-[12px] font-mono font-black uppercase">FUTUROS_DIRECTO</div>
                             </div>
-                            <span className="material-symbols-outlined text-[24px] group-hover:translate-x-1 transition-transform">open_in_new</span>
+                            <span className="material-symbols-outlined text-[20px] group-hover:translate-x-1 transition-transform">open_in_new</span>
                         </a>
                     </header>
 
@@ -274,7 +298,7 @@ const App: React.FC = () => {
                                         </div>
                                     </div>
                                     <div ref={scrollRef} onScroll={handleScroll} className="flex-1 min-h-0 glass-panel terminal-glow p-6 overflow-y-auto custom-scrollbar border-[#1FDDC4]/10 bg-[#1FDDC4]/2 relative">
-                                        {logs.filter((l:any) => selectedChat === 'Global' || l.source === selectedChat).map((log: any, i: number) => (
+                                        {logs.map((log: any, i: number) => (
                                             <div key={i} className="mb-6 last:mb-0 space-y-2 border-l-2 border-white/5 pl-4 hover:border-[#1FDDC4]/40 transition-colors">
                                                 <div className="flex justify-between items-center">
                                                     <span className="text-[9px] font-mono text-[#1FDDC4] font-bold opacity-80">[{new Date(log.timestamp).toLocaleTimeString()}]</span>
@@ -296,7 +320,14 @@ const App: React.FC = () => {
                                     </h2>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pb-12">
                                         {trades.filter((t: any) => selectedChat === 'Global' || t.source === selectedChat).map((t: any, i: number) => (
-                                            <TradeCard key={i} {...t} showSource={selectedChat === 'Global'} onTradeClosed={fetchData} />
+                                            <TradeCard 
+                                                key={i} 
+                                                {...t} 
+                                                showSource={selectedChat === 'Global'} 
+                                                onTradeClosed={fetchData} 
+                                                showAlert={showAlert}
+                                                showConfirm={showConfirm}
+                                            />
                                         ))}
                                     </div>
                                 </div>
@@ -326,6 +357,23 @@ const App: React.FC = () => {
                     </div>
                 </main>
             </div>
+
+            {/* Custom UI Elements */}
+            <ToastContainer alerts={alerts} />
+            {confirmConfig && (
+                <CustomConfirmModal 
+                    title={confirmConfig.title}
+                    message={confirmConfig.message}
+                    onConfirm={() => {
+                        confirmConfig.resolve(true);
+                        setConfirmConfig(null);
+                    }}
+                    onCancel={() => {
+                        confirmConfig.resolve(false);
+                        setConfirmConfig(null);
+                    }}
+                />
+            )}
         </div>
     );
 };
@@ -517,7 +565,7 @@ const MiniStat = ({ label, value }: { label: string, value: string }) => (
 
 
 
-const TradeCard = ({ id, symbol, side, entry_price, margin, tp, sl, source, leverage, status = 'open', pnl_pct = "+0.00%", showSource = false, onTradeClosed }: any) => {
+const TradeCard = ({ id, symbol, side, entry_price, margin, tp, sl, source, leverage, status = 'open', pnl_pct = "+0.00%", showSource = false, onTradeClosed, showAlert, showConfirm }: any) => {
     // Si leverage viene como número (ej: 5), añadimos la 'x'. Si ya tiene string (ej: '10x'), lo dejamos.
     const displayLeverage = leverage ? (String(leverage).includes('x') ? leverage : `${leverage}x`) : "10x";
     const isLong = side?.toLowerCase() === 'long';
@@ -532,17 +580,19 @@ const TradeCard = ({ id, symbol, side, entry_price, margin, tp, sl, source, leve
     }, [tp, sl]);
 
     const handleClose = async () => {
-        if (window.confirm(`⚠️ ADVERTENCIA: ¿Estás seguro de que deseas LIQUIDAR la posición de ${symbol} inmediatamente a mercado?`)) {
+        const confirmed = await showConfirm("LIQUIDAR POSICIÓN", `⚠️ ADVERTENCIA: ¿Estás seguro de que deseas LIQUIDAR la posición de ${symbol} inmediatamente a mercado?`);
+        if (confirmed) {
             try {
                 const res = await fetch(`http://localhost:8000/api/trades/${id}/close`, { method: 'POST' });
                 const data = await res.json();
                 if (data.status === 'success') {
+                    showAlert(`Posición de ${symbol} cerrada con éxito.`, 'success');
                     onTradeClosed?.();
                 } else {
-                    alert('Error al cerrar trade: ' + data.message);
+                    showAlert('Error al cerrar trade: ' + data.message, 'error');
                 }
             } catch (err) {
-                alert('Error de conexión con la API.');
+                showAlert('Error de conexión con la API.', 'error');
             }
         }
     };
@@ -558,74 +608,74 @@ const TradeCard = ({ id, symbol, side, entry_price, margin, tp, sl, source, leve
             });
             const data = await res.json();
             if (data.status === 'success') {
-                alert('✅ Parámetros sincronizados con el Exchange.');
+                showAlert('✅ Parámetros sincronizados con el Exchange.', 'success');
             } else {
-                alert('❌ Error: ' + data.message);
+                showAlert('❌ Error: ' + data.message, 'error');
             }
         } catch (err) {
-            alert('❌ Error de conexión.');
+            showAlert('❌ Error de conexión.', 'error');
         } finally {
             setIsSaving(false);
         }
     };
 
     return (
-        <div className={`glass-panel group rounded-sm p-6 transition-all relative overflow-hidden backdrop-blur-xl ${isPending ? 'border-[#F0B90B]/40 bg-[#F0B90B]/5 border-dashed border-2' : 'border-white/5 bg-[#0B0E11]/60 hover:border-[#1FDDC4]/40 terminal-glow'}`}>
+        <div className={`glass-panel group rounded-sm p-4 transition-all relative overflow-hidden backdrop-blur-xl ${isPending ? 'border-[#F0B90B]/40 bg-[#F0B90B]/5 border-dashed border-2' : 'border-white/5 bg-[#0B0E11]/60 hover:border-[#1FDDC4]/40 terminal-glow'}`}>
             {showSource && (
                 <div className="absolute top-0 right-0 px-3 py-1 bg-[#1FDDC4]/10 text-[#1FDDC4] text-[8px] font-mono font-black uppercase tracking-widest opacity-40">
                     {source || "MANUAL"}
                 </div>
             )}
             
-            <div className="mb-8 flex justify-between items-start">
-                <div className="space-y-2">
-                    <div className="font-mono text-2xl font-black tracking-tighter flex items-center gap-2 text-white">
+            <div className="mb-5 flex justify-between items-start">
+                <div className="space-y-1">
+                    <div className="font-mono text-xl font-black tracking-tighter flex items-center gap-2 text-white">
                         {symbol}
-                        <span className="text-[10px] bg-white/5 px-2 py-0.5 rounded-none font-bold text-[#848E9C]">{displayLeverage}</span>
+                        <span className="text-[9px] bg-white/5 px-2 py-0.5 rounded-none font-bold text-[#848E9C]">{displayLeverage}</span>
                     </div>
                     <div className="flex gap-2">
-                        <span className={`px-2 py-0.5 text-[10px] font-black rounded-none uppercase tracking-widest ${isLong ? 'bg-[#00C087]/20 text-[#00C087]' : 'bg-[#F6465D]/20 text-[#F6465D]'}`}>
+                        <span className={`px-2 py-0.5 text-[9px] font-black rounded-none uppercase tracking-widest ${isLong ? 'bg-[#00C087]/20 text-[#00C087]' : 'bg-[#F6465D]/20 text-[#F6465D]'}`}>
                             {side}
                         </span>
                         {isPending && (
-                            <span className="px-2 py-0.5 text-[10px] font-black rounded-none uppercase tracking-widest bg-[#F0B90B]/20 text-[#F0B90B] animate-pulse">
-                                WAITING_PRICE
+                            <span className="px-2 py-0.5 text-[9px] font-black rounded-none uppercase tracking-widest bg-[#F0B90B]/20 text-[#F0B90B] animate-pulse">
+                                WAITING
                             </span>
                         )}
                     </div>
                 </div>
                 <div className="text-right">
-                    <div className={`font-mono text-3xl font-black tracking-tight ${isPending ? 'text-[#848E9C] opacity-20' : isLong ? 'text-[#00C087] filter drop-shadow-[0_0_10px_rgba(0,192,135,0.4)]' : 'text-[#F6465D] filter drop-shadow-[0_0_10px_rgba(246,70,93,0.4)]'}`}>
+                    <div className={`font-mono text-2xl font-black tracking-tight ${isPending ? 'text-[#848E9C] opacity-20' : isLong ? 'text-[#00C087] filter drop-shadow-[0_0_10px_rgba(0,192,135,0.4)]' : 'text-[#F6465D] filter drop-shadow-[0_0_10px_rgba(246,70,93,0.4)]'}`}>
                         {isPending ? '0.00%' : pnl_pct}
                     </div>
-                    <div className="text-[9px] text-[#848E9C] font-mono font-bold uppercase tracking-widest mt-1">
-                        {isPending ? 'ESTIMATED_ROI' : 'REALTIME_PNL'}
+                    <div className="text-[8px] text-[#848E9C] font-mono font-bold uppercase tracking-widest mt-0.5">
+                        {isPending ? 'EST_ROI' : 'PNL_REALTIME'}
                     </div>
                 </div>
             </div>
             
-            <div className="grid grid-cols-2 gap-6 mb-8">
-                <div className="space-y-1 group/item">
-                    <label className="text-[9px] text-[#848E9C] font-mono font-bold uppercase tracking-[0.2em] flex items-center gap-2">
-                        <span className="material-symbols-outlined text-[14px]">login</span>
+            <div className="grid grid-cols-2 gap-2 mb-5">
+                <div className="space-y-0.5 group/item">
+                    <label className="text-[8px] text-[#848E9C] font-mono font-bold uppercase tracking-[0.2em] flex items-center gap-1.5">
+                        <span className="material-symbols-outlined text-[12px]">login</span>
                         ENTRY
                     </label>
-                    <div className="font-mono text-lg font-bold text-white/90 pl-5 border-l border-white/5">{entry_price}</div>
+                    <div className="font-mono text-[13px] font-bold text-white/90 pl-3 border-l border-white/10 truncate">{entry_price}</div>
                 </div>
-                <div className="space-y-1">
-                    <label className="text-[9px] text-[#848E9C] font-mono font-bold uppercase tracking-[0.2em] flex items-center gap-2">
-                        <span className="material-symbols-outlined text-[14px]">payments</span>
+                <div className="space-y-0.5">
+                    <label className="text-[8px] text-[#848E9C] font-mono font-bold uppercase tracking-[0.2em] flex items-center gap-1.5">
+                        <span className="material-symbols-outlined text-[12px]">payments</span>
                         MARGIN
                     </label>
-                    <div className="font-mono text-lg font-bold text-white/90 pl-5 border-l border-white/5">{margin} <span className="text-[10px] opacity-40">USDT</span></div>
+                    <div className="font-mono text-[13px] font-bold text-white/90 pl-3 border-l border-white/10 truncate">{margin} <span className="text-[8px] opacity-40">USDT</span></div>
                 </div>
             </div>
-
-            <div className="grid grid-cols-2 gap-4 border-t border-white/5 pt-6">
-                <div className="space-y-3">
-                    <label className="text-[9px] text-[#00C087] font-mono font-black uppercase tracking-[0.2em] flex items-center gap-2">
-                        <span className="material-symbols-outlined text-[16px]">trending_up</span>
-                        TAKE_PROFIT
+ 
+            <div className="grid grid-cols-2 gap-3 border-t border-white/5 pt-4">
+                <div className="space-y-2">
+                    <label className="text-[8px] text-[#00C087] font-mono font-black uppercase tracking-[0.2em] flex items-center gap-2">
+                        <span className="material-symbols-outlined text-[14px]">trending_up</span>
+                        TP
                     </label>
                     <div className="relative group/edit">
                         <input 
@@ -634,15 +684,15 @@ const TradeCard = ({ id, symbol, side, entry_price, margin, tp, sl, source, leve
                             value={localTp || ''} 
                             placeholder="0.0000"
                             onChange={(e) => setLocalTp(e.target.value)}
-                            className="w-full bg-white/10 border border-white/20 rounded-none px-4 py-3 font-mono text-sm font-bold text-[#00C087] focus:outline-none focus:border-[#00C087] focus:bg-[#00C087]/10 transition-all placeholder:opacity-20 shadow-inner"
+                            className="w-full bg-white/10 border border-white/20 rounded-none px-3 py-2 font-mono text-xs font-bold text-[#00C087] focus:outline-none focus:border-[#00C087] focus:bg-[#00C087]/10 transition-all placeholder:opacity-20 shadow-inner"
                         />
-                        <span className="absolute right-3 top-1/2 -translate-y-1/2 material-symbols-outlined text-[14px] text-[#00C087] opacity-40 group-hover/edit:opacity-100 transition-opacity">edit</span>
+                        <span className="absolute right-2 top-1/2 -translate-y-1/2 material-symbols-outlined text-[12px] text-[#00C087] opacity-40 group-hover/edit:opacity-100 transition-opacity">edit</span>
                     </div>
                 </div>
-                <div className="space-y-3">
-                    <label className="text-[9px] text-[#F6465D] font-mono font-black uppercase tracking-[0.2em] flex items-center gap-2">
-                        <span className="material-symbols-outlined text-[16px]">trending_down</span>
-                        STOP_LOSS
+                <div className="space-y-2">
+                    <label className="text-[8px] text-[#F6465D] font-mono font-black uppercase tracking-[0.2em] flex items-center gap-2">
+                        <span className="material-symbols-outlined text-[14px]">trending_down</span>
+                        SL
                     </label>
                     <div className="relative group/edit">
                         <input 
@@ -651,34 +701,92 @@ const TradeCard = ({ id, symbol, side, entry_price, margin, tp, sl, source, leve
                             value={localSl || ''} 
                             placeholder="0.0000"
                             onChange={(e) => setLocalSl(e.target.value)}
-                            className="w-full bg-white/10 border border-white/20 rounded-none px-4 py-3 font-mono text-sm font-bold text-[#F6465D] focus:outline-none focus:border-[#F6465D] focus:bg-[#F6465D]/10 transition-all placeholder:opacity-20 shadow-inner"
+                            className="w-full bg-white/10 border border-white/20 rounded-none px-3 py-2 font-mono text-xs font-bold text-[#F6465D] focus:outline-none focus:border-[#F6465D] focus:bg-[#F6465D]/10 transition-all placeholder:opacity-20 shadow-inner"
                         />
-                        <span className="absolute right-3 top-1/2 -translate-y-1/2 material-symbols-outlined text-[14px] text-[#F6465D] opacity-40 group-hover/edit:opacity-100 transition-opacity">edit</span>
+                        <span className="absolute right-2 top-1/2 -translate-y-1/2 material-symbols-outlined text-[12px] text-[#F6465D] opacity-40 group-hover/edit:opacity-100 transition-opacity">edit</span>
                     </div>
                 </div>
             </div>
-
-            <div className="flex gap-3 mt-8">
-                <button 
+ 
+            <div className="flex gap-2 mt-6">
+                <button
                     onClick={handleUpdateParams}
                     disabled={isSaving}
-                    className="flex-[2] py-4 bg-[#1FDDC4] text-black font-mono font-black text-[11px] uppercase tracking-widest transition-all hover:bg-[#1FDDC4]/90 active:scale-95 disabled:opacity-20 flex items-center justify-center gap-3 overflow-hidden group/save"
+                    className="flex-[2] py-3 bg-[#1FDDC4] text-black font-mono font-black text-[10px] uppercase tracking-widest transition-all hover:bg-[#1FDDC4]/90 active:scale-95 disabled:opacity-20 flex items-center justify-center gap-2 overflow-hidden group/save"
                 >
-                    <span className={`material-symbols-outlined text-[18px] ${isSaving ? 'animate-spin' : 'group-hover/save:scale-110 transition-transform'}`}>{isSaving ? 'sync' : 'done_all'}</span>
-                    {isSaving ? 'SYNCING...' : 'SAVE_ADJUSTMENTS'}
+                    <span className={`material-symbols-outlined text-[16px] ${isSaving ? 'animate-spin' : 'group-hover/save:scale-110 transition-transform'}`}>{isSaving ? 'sync' : 'done_all'}</span>
+                    {isSaving ? 'SYNC' : 'SAVE'}
                 </button>
-                <button 
+                <button
                     onClick={handleClose}
-                    className="flex-1 py-4 bg-[#F6465D]/10 border border-[#F6465D]/30 text-[#F6465D] font-mono font-bold text-[10px] uppercase tracking-widest transition-all hover:bg-[#F6465D] hover:text-white active:scale-95 flex items-center justify-center gap-2 group/close"
+                    className="flex-1 py-3 bg-[#F6465D]/10 border border-[#F6465D]/30 text-[#F6465D] font-mono font-bold text-[9px] uppercase tracking-widest transition-all hover:bg-[#F6465D] hover:text-white active:scale-95 flex items-center justify-center gap-1 group/close"
                 >
-                    <span className="material-symbols-outlined text-[18px] group-hover/close:rotate-90 transition-transform">bolt</span>
-                    CIERRE
+                    <span className="material-symbols-outlined text-[16px] group-hover/close:rotate-90 transition-transform">bolt</span>
+                    EXIT
                 </button>
             </div>
         </div>
     );
 };
 
+/* --- NUEVOS COMPONENTES ESTÉTICOS --- */
 
+const ToastContainer = ({ alerts }: { alerts: Alert[] }) => (
+    <div className="fixed bottom-8 right-8 z-[100] flex flex-col gap-3 pointer-events-none">
+        {alerts.map(alert => (
+            <div 
+                key={alert.id}
+                className={`animate-slide-in-right pointer-events-auto min-w-[300px] glass-panel p-4 border-l-4 shadow-2xl flex items-center gap-4 ${
+                    alert.type === 'success' ? 'border-l-[#00C087] bg-[#00C087]/5' : 
+                    alert.type === 'error' ? 'border-l-[#F6465D] bg-[#F6465D]/5' : 
+                    'border-l-[#1FDDC4] bg-[#1FDDC4]/5'
+                }`}
+            >
+                <span className={`material-symbols-outlined ${
+                    alert.type === 'success' ? 'text-[#00C087]' : 
+                    alert.type === 'error' ? 'text-[#F6465D]' : 
+                    'text-[#1FDDC4]'
+                }`}>
+                    {alert.type === 'success' ? 'check_circle' : alert.type === 'error' ? 'error' : 'info'}
+                </span>
+                <div className="flex-1">
+                    <div className="text-[10px] font-mono font-black uppercase opacity-40 mb-0.5">System_Notification</div>
+                    <div className="text-[12px] font-mono font-bold text-white uppercase tracking-tight">{alert.message}</div>
+                </div>
+            </div>
+        ))}
+    </div>
+);
+
+const CustomConfirmModal = ({ title, message, onConfirm, onCancel }: { title: string, message: string, onConfirm: () => void, onCancel: () => void }) => (
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-6 animate-fade-in">
+        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onCancel}></div>
+        <div className="relative w-full max-w-md glass-panel p-8 border-[#1FDDC4]/20 animate-scale-up shadow-[0_0_50px_rgba(31,221,196,0.1)]">
+            <div className="flex items-center gap-3 mb-6">
+                <div className="h-1 w-8 bg-[#1FDDC4]"></div>
+                <h2 className="font-mono text-lg font-black uppercase tracking-tight text-white bitget-glow">{title}</h2>
+            </div>
+            
+            <p className="font-mono text-[13px] leading-relaxed text-[#848E9C] mb-10 uppercase tracking-tight">
+                {message}
+            </p>
+            
+            <div className="flex gap-4">
+                <button 
+                    onClick={onCancel}
+                    className="flex-1 py-4 bg-white/5 border border-white/10 text-[#848E9C] font-mono font-bold text-[10px] uppercase tracking-widest transition-all hover:bg-white/10"
+                >
+                    ABORT_ACTION
+                </button>
+                <button 
+                    onClick={onConfirm}
+                    className="flex-1 py-4 bg-[#1FDDC4] text-black font-mono font-black text-[10px] uppercase tracking-widest transition-all hover:bg-[#1FDDC4]/90 shadow-[0_0_20px_rgba(31,221,196,0.2)]"
+                >
+                    CONFIRM_EXECUTION
+                </button>
+            </div>
+        </div>
+    </div>
+);
 
 export default App;

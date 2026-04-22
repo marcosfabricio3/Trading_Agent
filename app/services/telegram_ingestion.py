@@ -90,27 +90,26 @@ class TelegramService:
             chat_id = event.chat_id
             topic_id = None
             
-            # Si el mensaje tiene un reply_to, verificamos si es un tema (Forum Topic)
+            # 1. Extracción robusta del Topic ID (Thread ID)
             if event.message.reply_to:
-                # El top_id es el identificador del tema en Telethon
+                # El top_id es la forma estándar de Telethon para identificar el hilo del foro
                 topic_id = getattr(event.message.reply_to, 'reply_to_top_id', None)
+                if topic_id is None:
+                    # En algunos casos (respuestas directas al primer mensaje del tema), usamos msg_id
+                    topic_id = getattr(event.message.reply_to, 'reply_to_msg_id', None)
             
-            # Identificador unificado para hilos o chats simples
-            lookup_id = f"{chat_id}_{topic_id}" if topic_id else chat_id
+            # 2. Normalización de IDs a string para comparación fiable
+            s_chat_id = str(chat_id)
+            s_lookup_id = f"{chat_id}_{topic_id}" if topic_id else s_chat_id
             
-            # Verificación de monitoreo (probamos el ID de tema primero, luego el de chat)
-            is_monitored = lookup_id in self.monitored_ids or chat_id in self.monitored_ids
+            # 3. Verificación de monitoreo (Prioridad al Tema específico)
+            # Buscamos en el mapeo de nombres para ver si está monitoreado
+            source = self.id_to_name.get(s_lookup_id) or self.id_to_name.get(chat_id) or self.id_to_name.get(s_chat_id)
             
-            # Obtener nombre para el log
-            raw_source = self.id_to_name.get(lookup_id) or self.id_to_name.get(chat_id, str(chat_id))
-            
-            if is_monitored:
+            if source:
                 try:
                     raw_text = event.raw_text
-                    # Obtenemos la etiqueta EXACTA (Priorizamos el Tema si existe)
-                    source = raw_source.strip()
-                    
-                    logger.info(f"[Telegram] CAPTURA de '{source}': {raw_text[:40]}...")
+                    logger.info(f"[Telegram] CAPTURA de '{source}': {raw_text[:40].replace('\n', ' ')}...")
                     
                     # El motor guardará el log con este 'source'
                     await self.engine.process_signal(raw_text, source=source)
@@ -118,8 +117,11 @@ class TelegramService:
                 except Exception as e:
                     logger.error(f"[Telegram] Error en procesamiento: {e}")
             else:
-                # Log a nivel INFO para que el usuario sepa que llegó algo y por qué se ignora
-                logger.info(f"[Telegram] IGNORADO: Mensaje de '{raw_source}' (ID: {chat_id}) - No está en Monitoreo.")
+                # Log de IGNORADO mejorado para diagnóstico
+                # Solo logueamos si es un mensaje de texto real (evitar spam de service messages)
+                if event.raw_text and len(event.raw_text.strip()) > 1:
+                    topic_info = f" (Tema: {topic_id})" if topic_id else ""
+                    logger.info(f"[Telegram] IGNORADO: Mensaje de '{chat_id}'{topic_info} - No está en Monitoreo.")
 
         logger.info(f"[Telegram] ESCUCHA ACTIVA. Etiquetas configuradas: {list(self.id_to_name.values())}")
         
@@ -275,12 +277,14 @@ class TelegramService:
                     ))
                     for topic in topics.topics:
                         topic_name = f"{d_name} > {topic.title}"
-                        topic_id = f"{d_id}_{topic.id}"
+                        topic_id_str = f"{d_id}_{topic.id}"
                         
                         for target in self.target_chat_names:
-                            if topic_name.lower() == target.lower() or topic_id == target:
-                                self.monitored_ids.add(topic_id)
-                                self.id_to_name[topic_id] = target
+                            clean_target = target.strip()
+                            if topic_name.lower() == clean_target.lower() or topic_id_str == clean_target:
+                                self.monitored_ids.add(topic_id_str)
+                                self.id_to_name[topic_id_str] = clean_target
+                                logger.info(f"[Telegram] Tema vinculado: '{topic_name}' => '{clean_target}'")
                 except Exception as e:
                     logger.debug(f"[Telegram] Silencio en topics de {d_name}: {e}")
         

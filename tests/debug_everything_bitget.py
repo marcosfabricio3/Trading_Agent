@@ -4,7 +4,6 @@ import ccxt
 import json
 from dotenv import load_dotenv
 
-# Re-cargar entorno
 load_dotenv()
 
 async def debug_everything():
@@ -38,7 +37,6 @@ async def debug_everything():
             print("NO SE ENCONTRARON POSICIONES (lista vacia)")
         for p in poss:
             print(f"Side: {p['side']}, Size: {p['contracts']}, Notional: {float(p['contracts']) * p['markPrice'] if 'markPrice' in p else 'N/A'}")
-            # El campo info tiene todo el crudo de Bitget
             info = p.get('info', {})
             print(f"Bitget RAW Info: available={info.get('available')}, positionId={info.get('posId')}, marginMode={info.get('marginMode')}")
             
@@ -57,11 +55,10 @@ async def debug_everything():
 
     print("\n4. Intentando cerrado con el endpoint de CIERRE DE MERCADO (v2/mix/order/close-positions)...")
     try:
-        # Bitget V2 has a dedicated endpoint to close positions
         res = exchange.request('v2/mix/order/close-positions', 'private', 'POST', {
             'symbol': 'XRPUSDT',
             'productType': 'usdt-futures',
-            'marginMode': 'isolated' # O 'cross' segun sea el caso
+            'marginMode': 'isolated'
         })
         print(f"🎯 EXITO 2 (Dedicated Endpoint): {res.get('msg')}")
     except Exception as e:

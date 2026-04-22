@@ -4,7 +4,6 @@ import sys
 import ccxt
 from dotenv import load_dotenv
 
-# Re-cargar entorno
 load_dotenv()
 
 async def debug_bitget_params():
@@ -45,7 +44,6 @@ async def debug_bitget_params():
         sl_price = round(mark_price * 0.95, 4)
         print(f"Mark Price: {mark_price}, Intento SL: {sl_price}")
 
-        # Combinaciones críticas
         combinations = [
             {"name": "Action Only (Sell + ReduceOnly)", "side": "sell", "params": {"reduceOnly": True}},
             {"name": "No Sides (Buy + Trigger)", "side": "buy", "params": {"stopLossPrice": sl_price, "reduceOnly": True}},

@@ -119,13 +119,59 @@ async def get_status():
                 pass
 
 @app.get("/api/trades")
-def get_trades():
+async def get_trades():
     """
-    Lista de trades (Activos e Históricos).
+    Lista de trades (Activos e Históricos) con PnL enriquecido en tiempo real.
     """
     try:
         active = db.get_active_trades()
-        # En una versión extendida, db_server traería también los históricos
+        
+        # Función auxiliar para inyectar PnL real consultando el exchange
+        async def enrich_trade(t):
+            try:
+                # Solo calculamos PnL para posiciones abiertas (no pending ni closed)
+                if t.get('status') != 'open':
+                    t['pnl_pct'] = "+0.00%"
+                    return
+                
+                symbol = t.get('symbol')
+                entry = t.get('entry_price')
+                side = t.get('side', '').lower()
+                leverage_raw = t.get('leverage') or 10
+                try:
+                    if isinstance(leverage_raw, str):
+                        leverage = float(leverage_raw.lower().replace('x', '').strip())
+                    else:
+                        leverage = float(leverage_raw)
+                except:
+                    leverage = 10.0
+                
+                if not entry or not symbol:
+                    t['pnl_pct'] = "---"
+                    return
+
+                # Consultamos el precio actual al exchange (vía Bitget Server)
+                market_data = await exchange.get_market_price(symbol)
+                current_price = market_data.get('price')
+                
+                if current_price:
+                    if side == 'long':
+                        raw_pnl = (current_price - entry) / entry * 100 * leverage
+                    else:
+                        raw_pnl = (entry - current_price) / entry * 100 * leverage
+                    
+                    t['pnl_pct'] = f"{'+' if raw_pnl >= 0 else ''}{raw_pnl:.2f}%"
+                else:
+                    t['pnl_pct'] = "+0.00%"
+            except Exception as e:
+                logger.error(f"Error enriqueciendo trade {t.get('id')}: {e}")
+                t['pnl_pct'] = "ERR"
+
+        # Ejecutamos todas las consultas en paralelo para no penalizar la latencia de la UI
+        if active:
+            tasks = [enrich_trade(t) for t in active]
+            await asyncio.gather(*tasks)
+
         return {
             "active": active,
             "historical": [] 
@@ -185,7 +231,7 @@ async def get_balance():
         return {"error": str(e)}
 
 @app.get("/api/performance")
-def get_performance():
+async def get_performance():
     """
     Calcula métricas de posiciones abiertas (Longs vs Shorts).
     """
@@ -194,10 +240,12 @@ def get_performance():
         longs = sum(1 for t in active if t.get('side', '').lower() == 'long')
         shorts = sum(1 for t in active if t.get('side', '').lower() == 'short')
         
+        # El PnL diario real requeriría históricos. 
+        # Como fallback dinámico, podríamos mostrar "+0.0%" o un valor basado en las abiertas.
         return {
             "longs_open": longs,
             "shorts_open": shorts,
-            "daily_pnl": "+2.4%" # Simulamos PnL diario por ahora
+            "daily_pnl": "+0.0%" # Esto se calculará con el historial en la v3
         }
     except Exception as e:
         logger.error(f"API Performance Error: {e}")
@@ -242,14 +290,13 @@ def get_logs(chat: str = "Global"):
         if chat == "Global":
             cursor.execute("SELECT id, timestamp, message, metadata, source FROM events ORDER BY id DESC LIMIT 100")
         else:
-            # Búsqueda Insensible a Mayúsculas y Espacios
-            clean_chat = chat.strip().upper()
+            # Match directo para evitar problemas con UPPER/LOWER en SQLite con caracteres especiales (ñ, á, etc)
             cursor.execute("""
                 SELECT id, timestamp, message, metadata, source 
                 FROM events 
-                WHERE UPPER(TRIM(source)) = ? 
+                WHERE source = ? 
                 ORDER BY id DESC LIMIT 50
-            """, (clean_chat,))
+            """, (chat,))
             
         logs = []
         for row in cursor.fetchall():

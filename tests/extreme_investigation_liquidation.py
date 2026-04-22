@@ -4,7 +4,6 @@ import ccxt
 import json
 from dotenv import load_dotenv
 
-# Re-cargar entorno
 load_dotenv()
 
 async def extreme_investigation():
